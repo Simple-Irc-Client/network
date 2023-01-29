@@ -8,7 +8,7 @@ function sendIRCEventToWSClient(type: IrcEvents, event?: unknown): void {
   console.log(`<- ${event}`);
 
   SICWebSocketServer.clients.forEach((webSocket: ws.WebSocket) => {
-    if (webSocket.readyState === WebSocket.OPEN) {
+    if (webSocket.readyState === ws.WebSocket.OPEN) {
       webSocket.send(JSON.stringify({ type, event }));
     }
   });
