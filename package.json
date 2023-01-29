@@ -1,0 +1,20 @@
+{
+  "name": "sic-network",
+  "private": true,
+  "version": "0.1.0",
+  "type": "module",
+  "scripts": {
+    "build": "tsc",
+    "prt": "npx prettier --write ./src"
+  },
+  "devDependencies": {
+    "@types/node": "^18.11.18",
+    "@types/ws": "^8.5.4",
+    "prettier": "2.8.3",
+    "typescript": "^4.9.3"
+  },
+  "dependencies": {
+    "irc-framework": "^4.13.0",
+    "ws": "^8.12.0"
+  }
+}
