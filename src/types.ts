@@ -1,5 +1,17 @@
 // https://github.com/kiwiirc/irc-framework/blob/master/docs/clientapi.md
 
+export class WebSocketPayload implements SICWebSocketPayload {
+  public type: IrcEvents | IrcCommand;
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  public event: any;
+
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  constructor(type: IrcEvents | IrcCommand, event: any) {
+    this.type = type;
+    this.event = event;
+  }
+}
+
 export enum IrcEvents {
   connected = "connected",
   close = "close",

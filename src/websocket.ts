@@ -25,8 +25,8 @@ SICWebSocketServer.on("connection", function onConnection(webSocket: ws) {
     console.log("websocket event error");
   });
 
-  extWs.on("close", () => {
-    console.log("websocket event close");
+  extWs.on("close", (_code, reason) => {
+    console.log(`websocket event close: ${reason.toString()}`);
 
     ircClient.quit(defaultQuitMessage);
   });
@@ -36,9 +36,9 @@ SICWebSocketServer.on("connection", function onConnection(webSocket: ws) {
   });
 
   extWs.on("message", (message: string) => {
-    console.log(`websocket event message: ${JSON.stringify(message)}`);
+    console.log(`websocket event message: ${message.toString()}`);
 
-    handleEvents(message);
+    handleEvents(message.toString());
   });
 });
 

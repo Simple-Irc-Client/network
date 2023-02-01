@@ -1,15 +1,18 @@
 import * as ws from "ws";
 // @ts-ignore
 import * as IRC from "irc-framework";
-import { IrcEvents } from "./types";
+import { IrcEvents, WebSocketPayload } from "./types";
 import { SICWebSocketServer } from "./websocket";
 
 function sendIRCEventToWSClient(type: IrcEvents, event?: unknown): void {
-  console.log(`<- ${event}`);
+  console.log(`<- ${type} ${event}`);
+
+  const payload = new WebSocketPayload(type, event);
+  const payloadJSON = JSON.stringify(payload);
 
   SICWebSocketServer.clients.forEach((webSocket: ws.WebSocket) => {
     if (webSocket.readyState === ws.WebSocket.OPEN) {
-      webSocket.send(JSON.stringify({ type, event }));
+      webSocket.send(payloadJSON);
     }
   });
 }
