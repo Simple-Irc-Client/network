@@ -24,7 +24,7 @@ export type ConnectCommandPayload = {
   event: {
     nick: string;
     server: {
-      host: number;
+      host: string;
       port: number;
       encoding?: string;
     };
