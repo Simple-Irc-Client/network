@@ -9,13 +9,12 @@
   },
   "devDependencies": {
     "@types/node": "^18.11.18",
-    "@types/ws": "^8.5.4",
     "prettier": "2.8.3",
     "ts-node": "^10.9.1",
     "typescript": "^4.9.3"
   },
   "dependencies": {
     "irc-framework": "^4.13.0",
-    "ws": "^8.12.0"
+    "socket.io": "^4.5.4"
   }
 }

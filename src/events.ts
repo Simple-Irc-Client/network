@@ -11,23 +11,14 @@ import {
 /**
  * Events from Client
  *
- * @param message
+ * @param event
  * @returns
  */
-export const handleEvents = (message: string): void => {
-  let webSocketMessage: SICWebSocketPayload;
-
-  try {
-    webSocketMessage = JSON.parse(message);
-  } catch (e) {
-    console.log("incorrect json message:" + message);
-    return;
-  }
-
-  switch (webSocketMessage.type) {
+export const handleEvents = (event: SICWebSocketPayload): void => {
+  switch (event.type) {
     case IrcCommand.connect: {
-      const connectMessage = webSocketMessage as ConnectCommandPayload;
-      ircClient.connect({
+      const connectMessage = event as ConnectCommandPayload;
+      const connectParameters = {
         auto_reconnect: true,
         auto_reconnect_max_retries: 3,
         auto_reconnect_wait: 4000,
@@ -44,11 +35,13 @@ export const handleEvents = (message: string): void => {
         port: connectMessage.event.server.port,
         username: connectMessage.event.nick,
         version: defaultIrcVersionMessage,
-      });
+      };
+
+      ircClient.connect(connectParameters);
       break;
     }
     case IrcCommand.disconnect: {
-      const disconnectMessage = webSocketMessage as DisconnectCommandPayload;
+      const disconnectMessage = event as DisconnectCommandPayload;
       let quitReason = defaultQuitMessage;
       if (disconnectMessage.event !== undefined && disconnectMessage.event.quitReason !== undefined) {
         quitReason = disconnectMessage.event.quitReason;
@@ -57,7 +50,7 @@ export const handleEvents = (message: string): void => {
       break;
     }
     case IrcCommand.raw: {
-      const rawMessage = webSocketMessage as RawCommandPayload;
+      const rawMessage = event as RawCommandPayload;
       if (rawMessage.event.rawData) {
         ircClient.raw(rawMessage.event.rawData);
       }
