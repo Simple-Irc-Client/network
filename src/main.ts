@@ -5,7 +5,7 @@ import { ircClient } from "./irc";
 import { IrcCommand } from "./types";
 
 console.log(`websocket port: ${port}`);
-export const sicServerSocket = new Server(port, { cors: { origin: "*" } });
+export const sicServerSocket = new Server(port, { path: "/SimpleIrcClient", cors: { origin: "*" } });
 sicServerSocket.setMaxListeners(1);
 
 const onClientEvent = (data: any) => {
