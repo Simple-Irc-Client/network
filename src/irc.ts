@@ -12,28 +12,28 @@ export const ircClient = new IRC.Client();
 //     nick: nick
 // }
 ircClient.on(IrcEvents.connected, (_event: unknown) => {
-  sicServerSocket.emit("sic-irc-event", { type: IrcEvents.connected });
+  sicServerSocket.volatile.emit("sic-irc-event", { type: IrcEvents.connected });
 });
 
 // The client has disconnected from the network and failed to auto reconnect (if enabled).
 //
 // { }
 ircClient.on(IrcEvents.close, (_event: unknown) => {
-  sicServerSocket.emit("sic-irc-event", { type: IrcEvents.close });
+  sicServerSocket.volatile.emit("sic-irc-event", { type: IrcEvents.close });
 });
 
 // The client has disconnected from the network.
 //
 // { }
 ircClient.on(IrcEvents.socketClose, (_event: unknown) => {
-  sicServerSocket.emit("sic-irc-event", { type: IrcEvents.socketClose });
+  sicServerSocket.volatile.emit("sic-irc-event", { type: IrcEvents.socketClose });
 });
 
 // The client has a connected socket to the network. Network registration will automatically start at this point.
 //
 // { }
 ircClient.on(IrcEvents.socketConnected, (_event: unknown) => {
-  sicServerSocket.emit("sic-irc-event", { type: IrcEvents.socketConnected });
+  sicServerSocket.volatile.emit("sic-irc-event", { type: IrcEvents.socketConnected });
 });
 
 // A valid raw line sent or received from the IRC server.
@@ -44,6 +44,6 @@ ircClient.on(IrcEvents.socketConnected, (_event: unknown) => {
 // }
 ircClient.on(IrcEvents.raw, (event: any) => {
   if (event?.line) {
-    sicServerSocket.emit("sic-irc-event", { type: IrcEvents.raw, line: event.line });
+    sicServerSocket.volatile.emit("sic-irc-event", { type: IrcEvents.raw, line: event.line });
   }
 });

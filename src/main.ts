@@ -15,6 +15,10 @@ const onClientEvent = (data: any) => {
 sicServerSocket.on("connection", (socket) => {
   console.log(`connection ${socket.id} - ${new Date().toISOString()}`);
 
+  socket.onAny((eventName, ...args) => {
+    console.log(`${new Date().toISOString()} onAny: ${eventName} ${JSON.stringify(args)}`); // TODO debug
+  });
+
   socket.on("sic-client-event", onClientEvent);
 
   socket.on("disconnect", () => {
