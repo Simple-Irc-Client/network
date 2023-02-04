@@ -1,5 +1,4 @@
 import { defaultIrcGecosMessage, defaultIrcVersionMessage, defaultQuitMessage } from "./config";
-import { ircClient } from "./irc";
 import {
   ConnectCommandPayload,
   DisconnectCommandPayload,
@@ -14,7 +13,7 @@ import {
  * @param event
  * @returns
  */
-export const handleEvents = (event: SICWebSocketPayload): void => {
+export const handleEvents = (ircClient: any, event: SICWebSocketPayload): void => {
   switch (event.type) {
     case IrcCommand.connect: {
       const connectMessage = event as ConnectCommandPayload;
@@ -43,7 +42,7 @@ export const handleEvents = (event: SICWebSocketPayload): void => {
     case IrcCommand.disconnect: {
       const disconnectMessage = event as DisconnectCommandPayload;
       let quitReason = defaultQuitMessage;
-      if (disconnectMessage.event !== undefined && disconnectMessage.event.quitReason !== undefined) {
+      if (disconnectMessage?.event?.quitReason !== undefined) {
         quitReason = disconnectMessage.event.quitReason;
       }
       ircClient.quit(quitReason);

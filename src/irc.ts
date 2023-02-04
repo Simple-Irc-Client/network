@@ -1,9 +1,9 @@
 // @ts-ignore
 import * as IRC from "irc-framework";
 import { IrcEvents } from "./types";
-import { sicServerSocket } from "./websocket";
+import { sicServerSocket } from "./main";
 
-const ircClient = new IRC.Client();
+export const ircClient = new IRC.Client();
 
 // Once the client has connected and successfully registered on the IRC network.
 // This is a good place to start joining channels.
@@ -47,5 +47,3 @@ ircClient.on(IrcEvents.raw, (event: any) => {
     sicServerSocket.emit("sic-irc-event", { type: IrcEvents.raw, line: event.line });
   }
 });
-
-export { ircClient };

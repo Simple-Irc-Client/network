@@ -1,3 +1,3 @@
-import * as networkWebSocket from "./src/websocket";
+import * as networkWebSocket from "./src/main";
 
-networkWebSocket.sicServerSocket.setMaxListeners(1);
+networkWebSocket.sicServerSocket.getMaxListeners();
