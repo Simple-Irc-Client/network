@@ -4,6 +4,7 @@
   "version": "0.1.0",
   "scripts": {
     "start": "npx ts-node ./server.ts",
+    "dev": "npx ts-node ./server.ts",
     "build": "tsc",
     "prt": "npx prettier --write ./src"
   },

@@ -43,7 +43,10 @@ ircClient.on(IrcEvents.socketConnected, (_event: unknown) => {
 //     from_server: true
 // }
 ircClient.on(IrcEvents.raw, (event: any) => {
-  if (event?.line) {
+  if (event?.from_server && event?.line) {
     sicServerSocket.emit("sic-irc-event", { type: IrcEvents.raw, line: event.line });
+  }
+  if (!event?.from_server && event?.line) {
+    console.log(`-> ${event.line}`);
   }
 });
