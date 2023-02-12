@@ -6,13 +6,18 @@
     "start": "npx ts-node ./server.ts",
     "dev": "npx ts-node ./server.ts",
     "build": "tsc",
-    "prt": "npx prettier --write ./src"
+    "lint": "npx eslint src/**/*.{ts,tsx}"
   },
   "devDependencies": {
     "@types/node": "^18.11.18",
-    "prettier": "2.8.3",
+    "@typescript-eslint/eslint-plugin": "^5.51.0",
+    "eslint": "^8.34.0",
+    "eslint-config-standard-with-typescript": "^34.0.0",
+    "eslint-plugin-import": "^2.27.5",
+    "eslint-plugin-n": "^15.6.1",
+    "eslint-plugin-promise": "^6.1.1",
     "ts-node": "^10.9.1",
-    "typescript": "^4.9.3"
+    "typescript": "^4.9.5"
   },
   "dependencies": {
     "irc-framework": "^4.13.0",
