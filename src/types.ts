@@ -15,32 +15,32 @@ export enum IrcCommand {
 }
 
 export interface SICWebSocketPayload {
-  type: IrcEvents | IrcCommand
-  event?: unknown
+  type: IrcEvents | IrcCommand;
+  event?: unknown;
 }
 
 export interface ConnectCommandPayload {
-  type: string
+  type: string;
   event: {
-    nick: string
+    nick: string;
     server: {
-      host: string
-      port: number
-      encoding?: string
-    }
-  }
+      host: string;
+      port: number;
+      encoding?: string;
+    };
+  };
 }
 
 export interface DisconnectCommandPayload {
-  type: string
+  type: string;
   event?: {
-    quitReason?: string
-  }
+    quitReason?: string;
+  };
 }
 
 export interface RawCommandPayload {
-  type: string
+  type: string;
   event: {
-    rawData: string[]
-  }
+    rawData: string[];
+  };
 }

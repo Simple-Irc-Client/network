@@ -1,11 +1,5 @@
-import { defaultIrcGecosMessage, defaultIrcVersionMessage, defaultQuitMessage } from './config'
-import {
-  type ConnectCommandPayload,
-  type DisconnectCommandPayload,
-  IrcCommand,
-  type RawCommandPayload,
-  type SICWebSocketPayload
-} from './types'
+import { defaultIrcGecosMessage, defaultIrcVersionMessage, defaultQuitMessage } from './config';
+import { type ConnectCommandPayload, type DisconnectCommandPayload, IrcCommand, type RawCommandPayload, type SICWebSocketPayload } from './types';
 
 /**
  * Events from Client
@@ -16,7 +10,7 @@ import {
 export const handleEvents = (ircClient: any, event: SICWebSocketPayload): void => {
   switch (event.type) {
     case IrcCommand.connect: {
-      const connectMessage = event as ConnectCommandPayload
+      const connectMessage = event as ConnectCommandPayload;
       const connectParameters = {
         auto_reconnect: true,
         auto_reconnect_max_retries: 3,
@@ -33,28 +27,28 @@ export const handleEvents = (ircClient: any, event: SICWebSocketPayload): void =
         ping_timeout: 120,
         port: connectMessage.event.server.port,
         username: connectMessage.event.nick,
-        version: defaultIrcVersionMessage
-      }
+        version: defaultIrcVersionMessage,
+      };
 
-      ircClient.connect(connectParameters)
-      break
+      ircClient.connect(connectParameters);
+      break;
     }
     case IrcCommand.disconnect: {
-      const disconnectMessage = event as DisconnectCommandPayload
-      let quitReason = defaultQuitMessage
+      const disconnectMessage = event as DisconnectCommandPayload;
+      let quitReason = defaultQuitMessage;
       if (disconnectMessage?.event?.quitReason !== undefined) {
-        quitReason = disconnectMessage.event.quitReason
+        quitReason = disconnectMessage.event.quitReason;
       }
-      ircClient.quit(quitReason)
-      break
+      ircClient.quit(quitReason);
+      break;
     }
     case IrcCommand.raw: {
-      const rawMessage = event as RawCommandPayload
+      const rawMessage = event as RawCommandPayload;
       // eslint-disable-next-line @typescript-eslint/strict-boolean-expressions
       if (rawMessage?.event?.rawData) {
-        ircClient.raw(rawMessage.event.rawData)
+        ircClient.raw(rawMessage.event.rawData);
       }
-      break
+      break;
     }
   }
-}
+};
