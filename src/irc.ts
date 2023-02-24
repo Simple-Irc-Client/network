@@ -51,5 +51,6 @@ ircClient.on(IrcEvents.raw, (event: any) => {
   if (!event?.from_server && event?.line) {
     // eslint-disable-next-line @typescript-eslint/restrict-template-expressions
     console.log(`-> ${event.line}`);
+    sicServerSocket.emit('sic-server-event', { type: IrcEvents.raw, line: event.line });
   }
 });
