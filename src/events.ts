@@ -12,7 +12,7 @@ export const handleEvents = (ircClient: any, event: SICWebSocketPayload): void =
     case IrcCommand.connect: {
       const connectMessage = event as ConnectCommandPayload;
       const connectParameters = {
-        auto_reconnect: true,
+        auto_reconnect: false,
         auto_reconnect_max_retries: 3,
         auto_reconnect_wait: 4000,
         enable_chghost: false,
