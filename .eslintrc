@@ -11,8 +11,12 @@
     "sourceType": "module",
     "project": "tsconfig.json"
   },
-  "plugins": ["prettier"],
+  "plugins": ["prettier", "unused-imports"],
   "rules": {
-    "prettier/prettier": ["error"]
+    "prettier/prettier": ["error"],
+    "unused-imports/no-unused-imports": "error",
+    "import/no-duplicates": "error",
+    "import/no-self-import": "error",
+    "import/no-cycle": "warn"
   }
 }
