@@ -5,13 +5,15 @@
   "scripts": {
     "start": "npx ts-node ./server.ts",
     "dev": "npx ts-node ./server.ts",
-    "build": "tsc",
+    "pre-build": "tsc",
+    "build": "npx esbuild ./src/main.ts --bundle --platform=node --outfile=irc-network.js",
     "lint": "npx eslint src/**/*.{ts,tsx}"
   },
   "devDependencies": {
     "@types/node": "^18.15.7",
     "@typescript-eslint/eslint-plugin": "^5.56.0",
     "@typescript-eslint/parser": "^5.56.0",
+    "esbuild": "^0.17.14",
     "eslint": "^8.36.0",
     "eslint-config-prettier": "^8.8.0",
     "eslint-config-standard-with-typescript": "^34.0.1",
