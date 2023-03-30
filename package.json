@@ -10,7 +10,7 @@
     "lint": "npx eslint src/**/*.{ts,tsx}"
   },
   "devDependencies": {
-    "@types/node": "^18.15.7",
+    "@types/node": "^18.15.11",
     "@typescript-eslint/eslint-plugin": "^5.56.0",
     "@typescript-eslint/parser": "^5.56.0",
     "esbuild": "^0.17.14",
