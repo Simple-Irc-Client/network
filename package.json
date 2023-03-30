@@ -24,7 +24,7 @@
     "eslint-plugin-unused-imports": "^2.0.0",
     "prettier": "^2.8.7",
     "ts-node": "^10.9.1",
-    "typescript": "^4.9.5"
+    "typescript": "^5.0.3"
   },
   "dependencies": {
     "irc-framework": "^4.13.1",
