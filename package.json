@@ -1,7 +1,8 @@
 {
   "name": "sic-network",
-  "private": true,
+  "description": "Simple Irc Client network",
   "version": "0.1.0",
+  "license": "AGPL-3.0-or-later",
   "scripts": {
     "start": "npx ts-node ./server.ts",
     "dev": "npx ts-node ./server.ts",
