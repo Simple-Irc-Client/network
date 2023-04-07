@@ -18,3 +18,8 @@ If you find a bug or would like to contribute to the project, please open an iss
 
 ## License
 This project is licensed under the [Affero General Public License version 3 (AGPLv3)](https://github.com/Simple-Irc-Client/network/blob/main/LICENSE).
+
+## Authors
+
+- [Piotr Luczko](https://www.github.com/piotrluczko)
+- [Dariusz Markowicz](https://www.github.com/dmarkowicz)
