@@ -13,4 +13,4 @@ RUN npm ci
 COPY --chown=node:node . .
 
 EXPOSE 8081
-CMD [ "npm", "run", "dev"]
+CMD [ "npm", "run", "dev" ]
