@@ -1,3 +1,4 @@
+/* eslint-disable @typescript-eslint/no-unused-vars */
 // @ts-expect-error missing ts declaration file
 import * as IRC from 'irc-framework';
 import { IrcEvents } from './types';
@@ -42,6 +43,7 @@ ircClient.on(IrcEvents.socketConnected, (_event: unknown) => {
 //     line: ':server.ircd.net 265 prawnsalad :Current Local Users: 214  Max: 411',
 //     from_server: true
 // }
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
 ircClient.on(IrcEvents.raw, (event: any) => {
   // eslint-disable-next-line @typescript-eslint/strict-boolean-expressions
   if (event?.from_server && event?.line) {

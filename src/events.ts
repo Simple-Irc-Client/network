@@ -7,6 +7,7 @@ import { type ConnectCommandPayload, type DisconnectCommandPayload, IrcCommand, 
  * @param event
  * @returns
  */
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
 export const handleEvents = (ircClient: any, event: SICWebSocketPayload): void => {
   switch (event.type) {
     case IrcCommand.connect: {
