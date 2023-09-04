@@ -8,6 +8,7 @@ console.log(`websocket port: ${port}`);
 export const sicServerSocket = new Server(port, { path: '/SimpleIrcClient', cors: { origin: '*' } });
 sicServerSocket.setMaxListeners(1);
 
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
 const onClientEvent = (data: any): void => {
   handleEvents(ircClient, data);
 };
