@@ -1,13 +1,13 @@
 /* eslint-disable @typescript-eslint/no-unused-vars */
 import { Server } from 'socket.io';
-import { port } from './config';
+import { defaultWebsocketPort } from './config';
 import { handleEvents } from './events';
 import { IrcCommand, IrcEvents } from './types';
 // @ts-expect-error missing ts declaration file
 import * as IRC from 'irc-framework';
 
-console.log(`websocket port: ${port}`);
-export const sicServerSocket = new Server(port, { path: '/SimpleIrcClient', cors: { origin: '*' } });
+console.log(`websocket port: ${defaultWebsocketPort}`);
+export const sicServerSocket = new Server(defaultWebsocketPort, { path: '/SimpleIrcClient', cors: { origin: '*' } });
 sicServerSocket.setMaxListeners(1);
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any

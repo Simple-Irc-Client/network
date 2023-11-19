@@ -1,4 +1,4 @@
-import { defaultIrcGecosMessage, defaultIrcVersionMessage, defaultQuitMessage } from './config';
+import { defaultIrcGecosMessage, defaultIrcVersionMessage, defaultIrcQuitMessage } from './config';
 import { type ConnectCommandPayload, type DisconnectCommandPayload, IrcCommand, type RawCommandPayload, type SICWebSocketPayload } from './types';
 
 /**
@@ -36,7 +36,7 @@ export const handleEvents = (ircClient: any, event: SICWebSocketPayload): void =
     }
     case IrcCommand.disconnect: {
       const disconnectMessage = event as DisconnectCommandPayload;
-      let quitReason = defaultQuitMessage;
+      let quitReason = defaultIrcQuitMessage;
       if (disconnectMessage?.event?.quitReason !== undefined) {
         quitReason = disconnectMessage.event.quitReason;
       }
