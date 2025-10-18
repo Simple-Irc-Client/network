@@ -1,5 +1,5 @@
 import { defaultIrcGecosMessage, defaultIrcVersionMessage, defaultIrcQuitMessage } from './config';
-import { type ConnectCommandPayload, type DisconnectCommandPayload, IrcCommand, type RawCommandPayload, type SICWebSocketPayload } from './types';
+import { type ConnectCommandPayload, type DisconnectCommandPayload, type RawCommandPayload, type SICWebSocketPayload } from './types';
 
 /**
  * Events from Client
@@ -10,7 +10,7 @@ import { type ConnectCommandPayload, type DisconnectCommandPayload, IrcCommand, 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 export const handleEvents = (ircClient: any, event: SICWebSocketPayload): void => {
   switch (event.type) {
-    case IrcCommand.connect: {
+    case 'connect': {
       const connectMessage = event as ConnectCommandPayload;
       const connectParameters = {
         auto_reconnect: false,
@@ -34,7 +34,7 @@ export const handleEvents = (ircClient: any, event: SICWebSocketPayload): void =
       ircClient.connect(connectParameters);
       break;
     }
-    case IrcCommand.disconnect: {
+    case 'disconnect': {
       const disconnectMessage = event as DisconnectCommandPayload;
       let quitReason = defaultIrcQuitMessage;
       if (disconnectMessage?.event?.quitReason !== undefined) {
@@ -43,9 +43,8 @@ export const handleEvents = (ircClient: any, event: SICWebSocketPayload): void =
       ircClient.quit(quitReason);
       break;
     }
-    case IrcCommand.raw: {
+    case 'raw': {
       const rawMessage = event as RawCommandPayload;
-      // eslint-disable-next-line @typescript-eslint/strict-boolean-expressions
       if (rawMessage?.event?.rawData) {
         ircClient.raw(rawMessage.event.rawData);
       }

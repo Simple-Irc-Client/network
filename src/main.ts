@@ -2,7 +2,6 @@
 import { Server } from 'socket.io';
 import { defaultWebsocketPort } from './config';
 import { handleEvents } from './events';
-import { IrcCommand, IrcEvents } from './types';
 // @ts-expect-error missing ts declaration file
 import * as IRC from 'irc-framework';
 
@@ -19,14 +18,13 @@ sicServerSocket.on('connection', (socket) => {
   console.log(`connection ${socket.id} - ${new Date().toISOString()}`);
 
   socket.onAny((eventName, ...args) => {
-    // eslint-disable-next-line @typescript-eslint/restrict-template-expressions
     console.log(`${new Date().toISOString()} onAny: ${eventName} ${JSON.stringify(args)}`); // TODO debug
   });
 
   socket.on('sic-client-event', onClientEvent);
 
   socket.on('disconnect', () => {
-    handleEvents(ircClient, { type: IrcCommand.disconnect });
+    handleEvents(ircClient, { type: 'disconnect' });
     socket.removeListener('sic-client-event', onClientEvent);
   });
 });
@@ -39,29 +37,29 @@ export const ircClient = new IRC.Client();
 // {
 //     nick: nick
 // }
-ircClient.on(IrcEvents.connected, (_event: unknown) => {
-  sicServerSocket.emit('sic-irc-event', { type: IrcEvents.connected });
+ircClient.on('connected', (_event: unknown) => {
+  sicServerSocket.emit('sic-irc-event', { type: 'connected' });
 });
 
 // The client has disconnected from the network and failed to auto reconnect (if enabled).
 //
 // { }
-ircClient.on(IrcEvents.close, (_event: unknown) => {
-  sicServerSocket.emit('sic-irc-event', { type: IrcEvents.close });
+ircClient.on('close', (_event: unknown) => {
+  sicServerSocket.emit('sic-irc-event', { type: 'close' });
 });
 
 // The client has disconnected from the network.
 //
 // { }
-ircClient.on(IrcEvents.socketClose, (_event: unknown) => {
-  sicServerSocket.emit('sic-irc-event', { type: IrcEvents.socketClose });
+ircClient.on('socket close', (_event: unknown) => {
+  sicServerSocket.emit('sic-irc-event', { type: 'socket close' });
 });
 
 // The client has a connected socket to the network. Network registration will automatically start at this point.
 //
 // { }
-ircClient.on(IrcEvents.socketConnected, (_event: unknown) => {
-  sicServerSocket.emit('sic-irc-event', { type: IrcEvents.socketConnected });
+ircClient.on('socket connected', (_event: unknown) => {
+  sicServerSocket.emit('sic-irc-event', { type: 'socket connected' });
 });
 
 // A valid raw line sent or received from the IRC server.
@@ -71,15 +69,12 @@ ircClient.on(IrcEvents.socketConnected, (_event: unknown) => {
 //     from_server: true
 // }
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
-ircClient.on(IrcEvents.raw, (event: any) => {
-  // eslint-disable-next-line @typescript-eslint/strict-boolean-expressions
+ircClient.on('raw', (event: any) => {
   if (event?.from_server && event?.line) {
-    sicServerSocket.emit('sic-irc-event', { type: IrcEvents.raw, line: event.line });
+    sicServerSocket.emit('sic-irc-event', { type: 'raw', line: event.line });
   }
-  // eslint-disable-next-line @typescript-eslint/strict-boolean-expressions
   if (!event?.from_server && event?.line) {
-    // eslint-disable-next-line @typescript-eslint/restrict-template-expressions
     console.log(`<< ${event.line}`);
-    sicServerSocket.emit('sic-server-event', { type: IrcEvents.raw, line: event.line });
+    sicServerSocket.emit('sic-server-event', { type: 'raw', line: event.line });
   }
 });
