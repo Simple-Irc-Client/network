@@ -1,18 +1,8 @@
 // https://github.com/kiwiirc/irc-framework/blob/master/docs/clientapi.md
 
-export enum IrcEvents {
-  connected = 'connected',
-  close = 'close',
-  socketClose = 'socket close',
-  socketConnected = 'socket connected',
-  raw = 'raw',
-}
+export type IrcEvents = 'connected' | 'close' | 'socket close' | 'socket connected' | 'raw';
 
-export enum IrcCommand {
-  connect = 'connect',
-  disconnect = 'disconnect',
-  raw = 'raw',
-}
+export type IrcCommand = 'connect' | 'disconnect' | 'raw';
 
 export interface SICWebSocketPayload {
   type: IrcEvents | IrcCommand;
