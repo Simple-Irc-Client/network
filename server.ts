@@ -1,3 +1,3 @@
-import * as networkWebSocket from './src/main';
+import './src/main';
 
-networkWebSocket.sicServerSocket.getMaxListeners();
+console.log('WebSocket server initialized');
