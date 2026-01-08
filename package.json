@@ -3,9 +3,10 @@
   "description": "Simple Irc Client network",
   "version": "0.1.0",
   "license": "AGPL-3.0-or-later",
+  "type": "module",
   "scripts": {
-    "start": "npx ts-node ./server.ts",
-    "dev": "npx ts-node ./server.ts",
+    "start": "tsx ./server.ts",
+    "dev": "tsx ./server.ts",
     "pre-build": "tsc",
     "build": "npx esbuild ./src/main.ts --bundle --platform=node --outfile=irc-network.js",
     "lint": "npx eslint src/**/*.{ts,tsx}"
@@ -20,7 +21,7 @@
     "esbuild": "^0.27.2",
     "eslint": "^9.39.2",
     "eslint-config-prettier": "^10.1.8",
-    "ts-node": "^10.9.2",
+    "tsx": "^4.19.2",
     "typescript": "^5.9.3",
     "typescript-eslint": "^8.52.0"
   },
