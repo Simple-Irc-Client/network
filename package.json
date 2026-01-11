@@ -12,7 +12,7 @@
     "lint": "npx eslint src/**/*.{ts,tsx}"
   },
   "engines": {
-    "node": ">=22.0.0"
+    "node": ">=24.0.0"
   },
   "devDependencies": {
     "@eslint/js": "^9.39.2",
