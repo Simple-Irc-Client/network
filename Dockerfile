@@ -4,7 +4,7 @@ WORKDIR /network
 
 COPY package*.json ./
 
-RUN npm ci
+RUN npm ci --only=production
 
 COPY . .
 
