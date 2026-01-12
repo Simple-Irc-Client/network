@@ -1,8 +1,17 @@
-## Simple Irc Client network module
+# Simple IRC Client - Network Module
 
 [![Build Status](https://github.com/Simple-Irc-Client/network/actions/workflows/ci.yml/badge.svg)](https://github.com/Simple-Irc-Client/network/actions/workflows/ci.yml)
+[![License: AGPL v3](https://img.shields.io/badge/License-AGPL%20v3-blue.svg)](https://github.com/Simple-Irc-Client/network/blob/main/LICENSE)
+[![Node.js](https://img.shields.io/badge/Node.js-%3E%3D24-green.svg)](https://nodejs.org/)
 
-This is a network service that receives data from an IRC server and sends it to a frontend application via WebSocket.
+A network service that bridges IRC servers with frontend applications via WebSocket.
+
+## Features
+
+- Real-time IRC server communication
+- WebSocket API for frontend integration
+- Support for multiple IRC networks
+- Lightweight and fast
 
 ## Tech Stack
 
@@ -14,39 +23,46 @@ This is a network service that receives data from an IRC server and sends it to 
 
 - Node.js >= 24
 
-## Usage
+## Getting Started
+
+### Installation
+
+```bash
+npm install
+```
 
 ### Development
 
 Start the development server:
 
 ```bash
-npm install
 npm run dev
 ```
 
 The network service will be available at `http://localhost:8667`
 
-The service will listen for client/server messages and forward them to the frontend application.
-
 ## Docker
-
-Run using Docker:
 
 ```bash
 docker build -t sic-network .
 docker run -p 8667:8667 sic-network
 ```
 
+## Related Projects
+
+- [Simple-Irc-Client](https://github.com/Simple-Irc-Client) - Main project organization
+
 ## Contributing
 
-If you find a bug or would like to contribute to the project, please open an issue or submit a pull request on GitHub.
+If you find a bug or have a feature request, please [open an issue](https://github.com/Simple-Irc-Client/network/issues) on GitHub.
 
 ## License
 
-This project is licensed under the [Affero General Public License version 3 (AGPLv3)](https://github.com/Simple-Irc-Client/network/blob/main/LICENSE).
+This project is licensed under the [GNU Affero General Public License v3.0 (AGPL-3.0)](https://github.com/Simple-Irc-Client/network/blob/main/LICENSE).
 
-## Authors
+The AGPL-3.0 license ensures that if you modify and deploy this software over a network, you must make the complete source code available to users.
+
+**Authors:**
 
 - [Piotr Luczko](https://www.github.com/piotrluczko)
 - [Dariusz Markowicz](https://www.github.com/dmarkowicz)
