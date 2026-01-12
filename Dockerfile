@@ -1,17 +1,19 @@
-FROM node:18-alpine
+FROM node:24-alpine
 
-RUN mkdir -p /home/node/network/node_modules && chown -R node:node /home/node/network
-
-WORKDIR /home/node/network
+WORKDIR /network
 
 COPY package*.json ./
 
-USER node
+RUN npm ci
 
-RUN npm ci --only=production
+COPY . .
 
-COPY --chown=node:node . .
+RUN addgroup -g 1001 -S nodejs && \
+    adduser -S nodejs -u 1001 && \
+    chown -R nodejs:nodejs /network
 
-CMD [ "npm", "run", "dev" ]
+USER nodejs
 
 EXPOSE 8667
+
+CMD ["npm", "run", "dev"]
