@@ -4,7 +4,7 @@ import { handleEvents } from './events';
 // @ts-expect-error missing ts declaration file
 import * as IRC from 'irc-framework';
 
-console.log(`websocket port: ${defaultWebsocketPort}`);
+console.log(`\x1b[31m${new Date().toISOString()} websocket port: ${defaultWebsocketPort}\x1b[0m`);
 export const sicServerSocket = new WebSocketServer({ port: defaultWebsocketPort, path: '/SimpleIrcClient' });
 
 let connectedClient: WebSocket | null = null;
@@ -21,28 +21,28 @@ const onClientEvent = (data: any): void => {
 };
 
 sicServerSocket.on('connection', (ws: WebSocket) => {
-  console.log(`connection ${new Date().toISOString()}`);
+  console.log(`\x1b[33m${new Date().toISOString()} new connection\x1b[0m`);
 
   if (connectedClient === null) {
     connectedClient = ws;
-    console.log('client connected');
+    console.log(`\x1b[33m${new Date().toISOString()} client connected\x1b[0m`);
   }
 
   ws.on('message', (message: any) => {
     try {
-      console.log(`${new Date().toISOString()} message: ${message}`); // TODO debug
+      console.log(`\x1b[34m${new Date().toISOString()} ${message}\x1b[0m`);
       const parsedData = JSON.parse(message.toString());
 
       if (parsedData.event === 'sic-client-event') {
         onClientEvent(parsedData.data);
       }
     } catch (error) {
-      console.error('Error parsing message:', error);
+      console.error(`\x1b[31m${new Date().toISOString()} Error parsing message: ${JSON.stringify(error)}\x1b[0m`);
     }
   });
 
   ws.on('close', () => {
-    console.log('client disconnected');
+    console.log(`\x1b[33m${new Date().toISOString()} client disconnected\x1b[0m`);
     if (connectedClient !== null) {
       handleEvents(ircClient, { type: 'disconnect' });
       connectedClient = null;
@@ -50,7 +50,7 @@ sicServerSocket.on('connection', (ws: WebSocket) => {
   });
 
   ws.on('error', (error: Error) => {
-    console.error('WebSocket error:', error);
+    console.error(`\x1b[31mWebSocket error: ${JSON.stringify(error)}\x1b[0m`);
   });
 });
 
@@ -95,10 +95,11 @@ ircClient.on('socket connected', (_event: unknown) => {
 // }
 ircClient.on('raw', (event: any) => {
   if (event?.from_server && event?.line) {
+    console.log(`${new Date().toISOString()} >> ${event.line?.trim()}`);
     sendToClient('sic-irc-event', { type: 'raw', line: event.line });
   }
   if (!event?.from_server && event?.line) {
-    console.log(`<< ${event.line}`);
+    console.log(`\x1b[32m${new Date().toISOString()} << ${event.line?.trim()}\x1b[0m`);
     sendToClient('sic-server-event', { type: 'raw', line: event.line });
   }
 });
