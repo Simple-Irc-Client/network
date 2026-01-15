@@ -12,13 +12,20 @@ const mockIrcClientInstance = {
   raw: vi.fn(),
 };
 
+// Factory functions for mock classes to avoid no-extraneous-class lint error
+function createMockWebSocketServer() {
+  return Object.assign({}, mockWsServerInstance);
+}
+
+function createMockClient() {
+  return Object.assign({}, mockIrcClientInstance);
+}
+
 // Mock ws module before importing main
 vi.mock('ws', () => {
   return {
-    WebSocketServer: class MockWebSocketServer {
-      constructor() {
-        Object.assign(this, mockWsServerInstance);
-      }
+    WebSocketServer: function MockWebSocketServer() {
+      return createMockWebSocketServer();
     },
     WebSocket: {
       OPEN: 1,
@@ -30,26 +37,27 @@ vi.mock('ws', () => {
 // Mock irc-framework - it's imported as `* as IRC` so we need to export Client directly
 vi.mock('irc-framework', () => {
   return {
-    Client: class MockClient {
-      constructor() {
-        Object.assign(this, mockIrcClientInstance);
-      }
+    Client: function MockClient() {
+      return createMockClient();
     },
   };
 });
 
 // Mock console to avoid noise in tests
-vi.spyOn(console, 'log').mockImplementation(() => {});
-vi.spyOn(console, 'error').mockImplementation(() => {});
+vi.spyOn(console, 'log').mockImplementation(() => undefined);
+vi.spyOn(console, 'error').mockImplementation(() => undefined);
 
-// Helper to get handler from mock calls
-function getHandler(mockCalls: any[][], eventName: string): ((...args: any[]) => void) | undefined {
+// Helper to get handler from mock calls - throws if not found for safer usage
+function getHandler(mockCalls: unknown[][], eventName: string): (...args: unknown[]) => void {
   const call = mockCalls.find((c) => c[0] === eventName);
-  return call?.[1];
+  if (!call || typeof call[1] !== 'function') {
+    throw new Error(`Handler for event "${eventName}" not found`);
+  }
+  return call[1] as (...args: unknown[]) => void;
 }
 
 describe('main.ts', () => {
-  let connectionHandler: (ws: any) => void;
+  let connectionHandler: (ws: unknown) => void;
 
   beforeEach(async () => {
     // Clear all mock calls
@@ -67,10 +75,7 @@ describe('main.ts', () => {
     await import('./main');
 
     // Capture the connection handler
-    const handler = getHandler(mockWsServerInstance.on.mock.calls, 'connection');
-    if (handler) {
-      connectionHandler = handler;
-    }
+    connectionHandler = getHandler(mockWsServerInstance.on.mock.calls, 'connection');
   });
 
   afterEach(() => {
@@ -130,7 +135,6 @@ describe('main.ts', () => {
       connectionHandler(mockWs);
 
       const messageHandler = getHandler(mockWs.on.mock.calls, 'message');
-      expect(messageHandler).toBeDefined();
 
       // Send a valid sic-client-event
       const message = JSON.stringify({
@@ -138,7 +142,7 @@ describe('main.ts', () => {
         data: { type: 'raw', event: { rawData: 'PING :test' } },
       });
 
-      messageHandler!(Buffer.from(message));
+      messageHandler(Buffer.from(message));
 
       // Should have called ircClient.raw with the data
       expect(mockIrcClientInstance.raw).toHaveBeenCalledWith('PING :test');
@@ -154,7 +158,6 @@ describe('main.ts', () => {
       connectionHandler(mockWs);
 
       const messageHandler = getHandler(mockWs.on.mock.calls, 'message');
-      expect(messageHandler).toBeDefined();
 
       const message = JSON.stringify({
         event: 'sic-client-event',
@@ -167,7 +170,7 @@ describe('main.ts', () => {
         },
       });
 
-      messageHandler!(Buffer.from(message));
+      messageHandler(Buffer.from(message));
 
       expect(mockIrcClientInstance.connect).toHaveBeenCalledWith(
         expect.objectContaining({
@@ -188,11 +191,10 @@ describe('main.ts', () => {
       connectionHandler(mockWs);
 
       const messageHandler = getHandler(mockWs.on.mock.calls, 'message');
-      expect(messageHandler).toBeDefined();
 
       // Send invalid JSON - should not throw
       expect(() => {
-        messageHandler!(Buffer.from('invalid json'));
+        messageHandler(Buffer.from('invalid json'));
       }).not.toThrow();
     });
 
@@ -206,14 +208,13 @@ describe('main.ts', () => {
       connectionHandler(mockWs);
 
       const messageHandler = getHandler(mockWs.on.mock.calls, 'message');
-      expect(messageHandler).toBeDefined();
 
       const message = JSON.stringify({
         event: 'some-other-event',
         data: { type: 'raw', event: { rawData: 'PING :test' } },
       });
 
-      messageHandler!(Buffer.from(message));
+      messageHandler(Buffer.from(message));
 
       // Should not call any IRC client methods
       expect(mockIrcClientInstance.raw).not.toHaveBeenCalled();
@@ -231,10 +232,9 @@ describe('main.ts', () => {
       connectionHandler(mockWs);
 
       const closeHandler = getHandler(mockWs.on.mock.calls, 'close');
-      expect(closeHandler).toBeDefined();
 
       // Trigger close
-      closeHandler!();
+      closeHandler();
 
       // Should have called ircClient.quit
       expect(mockIrcClientInstance.quit).toHaveBeenCalledWith('Leaving');
@@ -250,11 +250,10 @@ describe('main.ts', () => {
       connectionHandler(mockWs);
 
       const errorHandler = getHandler(mockWs.on.mock.calls, 'error');
-      expect(errorHandler).toBeDefined();
 
       // Should not throw on error
       expect(() => {
-        errorHandler!(new Error('Test error'));
+        errorHandler(new Error('Test error'));
       }).not.toThrow();
     });
   });
@@ -272,10 +271,9 @@ describe('main.ts', () => {
 
       // Get the connected handler from ircClient
       const connectedHandler = getHandler(mockIrcClientInstance.on.mock.calls, 'connected');
-      expect(connectedHandler).toBeDefined();
 
       // Trigger the connected event
-      connectedHandler!({});
+      connectedHandler({});
 
       expect(mockWs.send).toHaveBeenCalledWith(
         JSON.stringify({ event: 'sic-irc-event', data: { type: 'connected' } })
@@ -292,9 +290,8 @@ describe('main.ts', () => {
       connectionHandler(mockWs);
 
       const closeHandler = getHandler(mockIrcClientInstance.on.mock.calls, 'close');
-      expect(closeHandler).toBeDefined();
 
-      closeHandler!({});
+      closeHandler({});
 
       expect(mockWs.send).toHaveBeenCalledWith(
         JSON.stringify({ event: 'sic-irc-event', data: { type: 'close' } })
@@ -311,9 +308,8 @@ describe('main.ts', () => {
       connectionHandler(mockWs);
 
       const socketCloseHandler = getHandler(mockIrcClientInstance.on.mock.calls, 'socket close');
-      expect(socketCloseHandler).toBeDefined();
 
-      socketCloseHandler!({});
+      socketCloseHandler({});
 
       expect(mockWs.send).toHaveBeenCalledWith(
         JSON.stringify({ event: 'sic-irc-event', data: { type: 'socket close' } })
@@ -330,9 +326,8 @@ describe('main.ts', () => {
       connectionHandler(mockWs);
 
       const socketConnectedHandler = getHandler(mockIrcClientInstance.on.mock.calls, 'socket connected');
-      expect(socketConnectedHandler).toBeDefined();
 
-      socketConnectedHandler!({});
+      socketConnectedHandler({});
 
       expect(mockWs.send).toHaveBeenCalledWith(
         JSON.stringify({ event: 'sic-irc-event', data: { type: 'socket connected' } })
@@ -349,9 +344,8 @@ describe('main.ts', () => {
       connectionHandler(mockWs);
 
       const rawHandler = getHandler(mockIrcClientInstance.on.mock.calls, 'raw');
-      expect(rawHandler).toBeDefined();
 
-      rawHandler!({ from_server: true, line: ':server.test PING :test' });
+      rawHandler({ from_server: true, line: ':server.test PING :test' });
 
       expect(mockWs.send).toHaveBeenCalledWith(
         JSON.stringify({
@@ -371,9 +365,8 @@ describe('main.ts', () => {
       connectionHandler(mockWs);
 
       const rawHandler = getHandler(mockIrcClientInstance.on.mock.calls, 'raw');
-      expect(rawHandler).toBeDefined();
 
-      rawHandler!({ from_server: false, line: 'PONG :test' });
+      rawHandler({ from_server: false, line: 'PONG :test' });
 
       expect(mockWs.send).toHaveBeenCalledWith(
         JSON.stringify({ event: 'sic-server-event', data: { type: 'raw', line: 'PONG :test' } })
@@ -390,10 +383,9 @@ describe('main.ts', () => {
       connectionHandler(mockWs);
 
       const rawHandler = getHandler(mockIrcClientInstance.on.mock.calls, 'raw');
-      expect(rawHandler).toBeDefined();
 
       // Call with missing line
-      rawHandler!({ from_server: true });
+      rawHandler({ from_server: true });
 
       expect(mockWs.send).not.toHaveBeenCalled();
     });
@@ -408,9 +400,8 @@ describe('main.ts', () => {
       connectionHandler(mockWs);
 
       const connectedHandler = getHandler(mockIrcClientInstance.on.mock.calls, 'connected');
-      expect(connectedHandler).toBeDefined();
 
-      connectedHandler!({});
+      connectedHandler({});
 
       // send should not be called when readyState is not OPEN
       expect(mockWs.send).not.toHaveBeenCalled();
@@ -419,12 +410,11 @@ describe('main.ts', () => {
     it('should not send when no client is connected', async () => {
       // Get the connected handler before any client connects
       const connectedHandler = getHandler(mockIrcClientInstance.on.mock.calls, 'connected');
-      expect(connectedHandler).toBeDefined();
 
       // This should not throw even without a connected client
       // (connectedClient is null at this point since connectionHandler wasn't called)
       expect(() => {
-        connectedHandler!({});
+        connectedHandler({});
       }).not.toThrow();
     });
   });
@@ -450,10 +440,9 @@ describe('main.ts', () => {
 
       // Get the connected handler
       const connectedHandler = getHandler(mockIrcClientInstance.on.mock.calls, 'connected');
-      expect(connectedHandler).toBeDefined();
 
       // Trigger event
-      connectedHandler!({});
+      connectedHandler({});
 
       // Only first client should receive the message
       expect(mockWs1.send).toHaveBeenCalled();
