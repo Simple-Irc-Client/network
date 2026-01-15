@@ -9,7 +9,9 @@
     "dev": "tsx ./server.ts",
     "pre-build": "tsc",
     "build": "npx esbuild ./src/main.ts --bundle --platform=node --outfile=irc-network.js",
-    "lint": "npx eslint src/**/*.{ts,tsx}"
+    "lint": "npx eslint src/**/*.{ts,tsx}",
+    "test": "vitest run",
+    "test:watch": "vitest"
   },
   "engines": {
     "node": ">=24.0.0"
@@ -23,7 +25,8 @@
     "eslint-config-prettier": "^10.1.8",
     "tsx": "^4.19.2",
     "typescript": "^5.9.3",
-    "typescript-eslint": "^8.52.0"
+    "typescript-eslint": "^8.52.0",
+    "vitest": "^4.0.17"
   },
   "dependencies": {
     "irc-framework": "^4.14.0",
