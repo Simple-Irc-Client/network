@@ -1,14 +1,13 @@
 {
   "compilerOptions": {
-        /* Language and Environment */
+    /* Language and Environment */
     "target": "ES2022",
-    "lib": ["ES2023", "DOM", "DOM.Iterable"],
-    "jsx": "react-jsx",
+    "lib": ["ES2023"],
     "useDefineForClassFields": true,
 
     /* Modules */
-    "module": "ESNext",
-    "moduleResolution": "Bundler",
+    "module": "NodeNext",
+    "moduleResolution": "NodeNext",
     "resolveJsonModule": true,
     "allowImportingTsExtensions": true,
     "moduleDetection": "force",

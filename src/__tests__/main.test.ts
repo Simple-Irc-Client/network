@@ -72,7 +72,7 @@ describe('main.ts', () => {
     mockIrcClientInstance.raw = vi.fn();
 
     // Import main module - this triggers side effects
-    await import('./main');
+    await import('../main');
 
     // Capture the connection handler
     connectionHandler = getHandler(mockWsServerInstance.on.mock.calls, 'connection');
@@ -237,7 +237,7 @@ describe('main.ts', () => {
       closeHandler();
 
       // Should have called ircClient.quit
-      expect(mockIrcClientInstance.quit).toHaveBeenCalledWith('Leaving');
+      expect(mockIrcClientInstance.quit).toHaveBeenCalledWith('Simple Irc Client ( https://simpleircclient.com )');
     });
 
     it('should handle WebSocket error event', () => {
