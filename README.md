@@ -63,5 +63,5 @@ The AGPL-3.0 license ensures that if you modify and deploy this software over a 
 
 **Authors:**
 
-- [Piotr Luczko](https://www.github.com/piotrluczko)
+- [Piotr Łuczko](https://www.github.com/piotrluczko)
 - [Dariusz Markowicz](https://www.github.com/dmarkowicz)
