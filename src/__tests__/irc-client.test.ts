@@ -40,7 +40,8 @@ vi.mock('tls', () => ({
 // Mock console to avoid noise
 vi.spyOn(console, 'error').mockImplementation(() => undefined);
 
-import { Client, IrcClientOptions } from '../irc-client.js';
+import { Client } from '../irc-client.js';
+import type { IrcClientOptions } from '../irc-client.js';
 import * as net from 'net';
 import * as tls from 'tls';
 
