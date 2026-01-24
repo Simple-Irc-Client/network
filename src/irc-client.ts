@@ -47,6 +47,9 @@ export class Client extends EventEmitter {
     this.emit('socket connected', {});
 
     if (this.options) {
+      // Send CAP LS 302 to initiate capability negotiation (IRCv3)
+      // This must be sent before NICK/USER for proper cap negotiation
+      this.sendRaw('CAP LS 302');
       this.sendRaw(`NICK ${this.options.nick}`);
       this.sendRaw(`USER ${this.options.username} 0 * :${this.options.gecos}`);
     }
