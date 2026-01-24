@@ -1,8 +1,7 @@
 import { WebSocketServer, WebSocket } from 'ws';
-import { defaultWebsocketPort } from './config';
-import { handleEvents } from './events';
-// @ts-expect-error missing ts declaration file
-import * as IRC from 'irc-framework';
+import { defaultWebsocketPort } from './config.js';
+import { handleEvents } from './events.js';
+import { Client } from './irc-client.js';
 
 console.log(`\x1b[31m${new Date().toISOString()} websocket port: ${defaultWebsocketPort}\x1b[0m`);
 export const sicServerSocket = new WebSocketServer({ port: defaultWebsocketPort, path: '/SimpleIrcClient' });
@@ -54,7 +53,7 @@ sicServerSocket.on('connection', (ws: WebSocket) => {
   });
 });
 
-export const ircClient = new IRC.Client();
+export const ircClient = new Client();
 
 // Once the client has connected and successfully registered on the IRC network.
 // This is a good place to start joining channels.
