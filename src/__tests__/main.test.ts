@@ -34,8 +34,8 @@ vi.mock('ws', () => {
   };
 });
 
-// Mock irc-framework - it's imported as `* as IRC` so we need to export Client directly
-vi.mock('irc-framework', () => {
+// Mock irc-client module
+vi.mock('../irc-client.js', () => {
   return {
     Client: function MockClient() {
       return createMockClient();
@@ -72,7 +72,7 @@ describe('main.ts', () => {
     mockIrcClientInstance.raw = vi.fn();
 
     // Import main module - this triggers side effects
-    await import('../main');
+    await import('../main.js');
 
     // Capture the connection handler
     connectionHandler = getHandler(mockWsServerInstance.on.mock.calls, 'connection');

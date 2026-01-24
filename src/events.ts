@@ -1,5 +1,5 @@
-import { defaultIrcGecosMessage, defaultIrcVersionMessage, defaultIrcQuitMessage } from './config';
-import { type ConnectCommandPayload, type DisconnectCommandPayload, type RawCommandPayload, type SICWebSocketPayload } from './types';
+import { defaultIrcGecosMessage, defaultIrcQuitMessage } from './config.js';
+import { type ConnectCommandPayload, type DisconnectCommandPayload, type RawCommandPayload, type SICWebSocketPayload } from './types.js';
 
 /**
  * Events from Client
@@ -12,22 +12,14 @@ export const handleEvents = (ircClient: any, event: SICWebSocketPayload): void =
     case 'connect': {
       const connectMessage = event as ConnectCommandPayload;
       const connectParameters = {
-        auto_reconnect: false,
-        auto_reconnect_max_retries: 3,
-        auto_reconnect_wait: 4000,
-        enable_chghost: false,
-        enable_echomessage: false,
-        enable_setname: false,
         encoding: connectMessage.event.server.encoding ?? 'utf8',
         gecos: defaultIrcGecosMessage,
         host: connectMessage.event.server.host,
-        message_max_length: 350,
         nick: connectMessage.event.nick,
         ping_interval: 30,
         ping_timeout: 120,
         port: connectMessage.event.server.port,
         username: connectMessage.event.nick,
-        version: defaultIrcVersionMessage,
       };
 
       ircClient.connect(connectParameters);

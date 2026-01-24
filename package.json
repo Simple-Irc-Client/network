@@ -9,7 +9,7 @@
     "dev": "tsx ./server.ts",
     "pre-build": "tsc",
     "build": "npx esbuild ./src/main.ts --bundle --platform=node --outfile=irc-network.js",
-    "lint": "npx eslint src/**/*.{ts,tsx}",
+    "lint": "tsc && npx eslint src/**/*.{ts,tsx}",
     "test": "vitest run",
     "test:watch": "vitest"
   },
@@ -29,7 +29,6 @@
     "vitest": "^4.0.17"
   },
   "dependencies": {
-    "irc-framework": "^4.14.0",
     "ws": "^8.19.0"
   }
 }
