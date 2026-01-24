@@ -17,7 +17,6 @@ A network service that bridges IRC servers with frontend applications via WebSoc
 
 - [TypeScript](https://www.typescriptlang.org/)
 - [ws](https://github.com/websockets/ws) - WebSocket server for frontend communication
-- [irc-framework](https://github.com/kiwiirc/irc-framework) - IRC protocol client library
 
 ## Requirements
 
