@@ -43,6 +43,13 @@ vi.mock('../irc-client.js', () => {
   };
 });
 
+// Mock encryption module to pass through unencrypted for testing
+vi.mock('../encryption.js', () => ({
+  initEncryption: vi.fn().mockResolvedValue(undefined),
+  encryptMessage: vi.fn().mockImplementation((data) => Promise.resolve(JSON.stringify(data))),
+  decryptMessage: vi.fn().mockImplementation((data) => Promise.resolve(JSON.parse(data))),
+}));
+
 // Mock console to avoid noise in tests
 vi.spyOn(console, 'log').mockImplementation(() => undefined);
 vi.spyOn(console, 'error').mockImplementation(() => undefined);
@@ -56,8 +63,18 @@ function getHandler(mockCalls: unknown[][], eventName: string): (...args: unknow
   return call[1] as (...args: unknown[]) => void;
 }
 
+// Helper to flush pending promises
+const flushPromises = (): Promise<void> => new Promise((resolve) => setTimeout(resolve, 0));
+
+// Create a mock request with headers for origin validation
+function createMockRequest(origin = 'http://localhost:5173') {
+  return {
+    headers: { origin },
+  };
+}
+
 describe('main.ts', () => {
-  let connectionHandler: (ws: unknown) => void;
+  let connectionHandler: (ws: unknown, request: unknown) => void;
 
   beforeEach(async () => {
     // Clear all mock calls
@@ -75,7 +92,10 @@ describe('main.ts', () => {
     await import('../main.js');
 
     // Capture the connection handler
-    connectionHandler = getHandler(mockWsServerInstance.on.mock.calls, 'connection');
+    connectionHandler = getHandler(mockWsServerInstance.on.mock.calls, 'connection') as (
+      ws: unknown,
+      request: unknown
+    ) => void;
   });
 
   afterEach(() => {
@@ -118,21 +138,21 @@ describe('main.ts', () => {
         readyState: 1, // WebSocket.OPEN
       };
 
-      connectionHandler(mockWs);
+      connectionHandler(mockWs, createMockRequest());
 
       expect(mockWs.on).toHaveBeenCalledWith('message', expect.any(Function));
       expect(mockWs.on).toHaveBeenCalledWith('close', expect.any(Function));
       expect(mockWs.on).toHaveBeenCalledWith('error', expect.any(Function));
     });
 
-    it('should parse and handle sic-client-event messages', () => {
+    it('should parse and handle sic-client-event messages', async () => {
       const mockWs = {
         on: vi.fn(),
         send: vi.fn(),
         readyState: 1,
       };
 
-      connectionHandler(mockWs);
+      connectionHandler(mockWs, createMockRequest());
 
       const messageHandler = getHandler(mockWs.on.mock.calls, 'message');
 
@@ -143,19 +163,20 @@ describe('main.ts', () => {
       });
 
       messageHandler(Buffer.from(message));
+      await flushPromises();
 
       // Should have called ircClient.raw with the data
       expect(mockIrcClientInstance.raw).toHaveBeenCalledWith('PING :test');
     });
 
-    it('should handle connect command', () => {
+    it('should handle connect command', async () => {
       const mockWs = {
         on: vi.fn(),
         send: vi.fn(),
         readyState: 1,
       };
 
-      connectionHandler(mockWs);
+      connectionHandler(mockWs, createMockRequest());
 
       const messageHandler = getHandler(mockWs.on.mock.calls, 'message');
 
@@ -171,6 +192,7 @@ describe('main.ts', () => {
       });
 
       messageHandler(Buffer.from(message));
+      await flushPromises();
 
       expect(mockIrcClientInstance.connect).toHaveBeenCalledWith(
         expect.objectContaining({
@@ -181,31 +203,30 @@ describe('main.ts', () => {
       );
     });
 
-    it('should handle invalid JSON messages gracefully', () => {
+    it('should handle invalid JSON messages gracefully', async () => {
       const mockWs = {
         on: vi.fn(),
         send: vi.fn(),
         readyState: 1,
       };
 
-      connectionHandler(mockWs);
+      connectionHandler(mockWs, createMockRequest());
 
       const messageHandler = getHandler(mockWs.on.mock.calls, 'message');
 
       // Send invalid JSON - should not throw
-      expect(() => {
-        messageHandler(Buffer.from('invalid json'));
-      }).not.toThrow();
+      messageHandler(Buffer.from('invalid json'));
+      await flushPromises();
     });
 
-    it('should ignore non sic-client-event messages', () => {
+    it('should ignore non sic-client-event messages', async () => {
       const mockWs = {
         on: vi.fn(),
         send: vi.fn(),
         readyState: 1,
       };
 
-      connectionHandler(mockWs);
+      connectionHandler(mockWs, createMockRequest());
 
       const messageHandler = getHandler(mockWs.on.mock.calls, 'message');
 
@@ -215,6 +236,7 @@ describe('main.ts', () => {
       });
 
       messageHandler(Buffer.from(message));
+      await flushPromises();
 
       // Should not call any IRC client methods
       expect(mockIrcClientInstance.raw).not.toHaveBeenCalled();
@@ -229,7 +251,7 @@ describe('main.ts', () => {
         readyState: 1,
       };
 
-      connectionHandler(mockWs);
+      connectionHandler(mockWs, createMockRequest());
 
       const closeHandler = getHandler(mockWs.on.mock.calls, 'close');
 
@@ -247,7 +269,7 @@ describe('main.ts', () => {
         readyState: 1,
       };
 
-      connectionHandler(mockWs);
+      connectionHandler(mockWs, createMockRequest());
 
       const errorHandler = getHandler(mockWs.on.mock.calls, 'error');
 
@@ -259,7 +281,7 @@ describe('main.ts', () => {
   });
 
   describe('IRC Event Handlers', () => {
-    it('should send sic-irc-event on connected', () => {
+    it('should send sic-irc-event on connected', async () => {
       const mockWs = {
         on: vi.fn(),
         send: vi.fn(),
@@ -267,85 +289,90 @@ describe('main.ts', () => {
       };
 
       // First connect a client
-      connectionHandler(mockWs);
+      connectionHandler(mockWs, createMockRequest());
 
       // Get the connected handler from ircClient
       const connectedHandler = getHandler(mockIrcClientInstance.on.mock.calls, 'connected');
 
       // Trigger the connected event
       connectedHandler({});
+      await flushPromises();
 
       expect(mockWs.send).toHaveBeenCalledWith(
         JSON.stringify({ event: 'sic-irc-event', data: { type: 'connected' } })
       );
     });
 
-    it('should send sic-irc-event on close', () => {
+    it('should send sic-irc-event on close', async () => {
       const mockWs = {
         on: vi.fn(),
         send: vi.fn(),
         readyState: 1,
       };
 
-      connectionHandler(mockWs);
+      connectionHandler(mockWs, createMockRequest());
 
       const closeHandler = getHandler(mockIrcClientInstance.on.mock.calls, 'close');
 
       closeHandler({});
+      await flushPromises();
 
       expect(mockWs.send).toHaveBeenCalledWith(
         JSON.stringify({ event: 'sic-irc-event', data: { type: 'close' } })
       );
     });
 
-    it('should send sic-irc-event on socket close', () => {
+    it('should send sic-irc-event on socket close', async () => {
       const mockWs = {
         on: vi.fn(),
         send: vi.fn(),
         readyState: 1,
       };
 
-      connectionHandler(mockWs);
+      connectionHandler(mockWs, createMockRequest());
 
       const socketCloseHandler = getHandler(mockIrcClientInstance.on.mock.calls, 'socket close');
 
       socketCloseHandler({});
+      await flushPromises();
 
       expect(mockWs.send).toHaveBeenCalledWith(
         JSON.stringify({ event: 'sic-irc-event', data: { type: 'socket close' } })
       );
     });
 
-    it('should send sic-irc-event on socket connected', () => {
+    it('should send sic-irc-event on socket connected', async () => {
       const mockWs = {
         on: vi.fn(),
         send: vi.fn(),
         readyState: 1,
       };
 
-      connectionHandler(mockWs);
+      connectionHandler(mockWs, createMockRequest());
 
       const socketConnectedHandler = getHandler(mockIrcClientInstance.on.mock.calls, 'socket connected');
 
       socketConnectedHandler({});
+      await flushPromises();
 
       expect(mockWs.send).toHaveBeenCalledWith(
         JSON.stringify({ event: 'sic-irc-event', data: { type: 'socket connected' } })
       );
     });
 
-    it('should send sic-irc-event with raw line from server', () => {
+    it('should send sic-irc-event with raw line from server', async () => {
       const mockWs = {
         on: vi.fn(),
         send: vi.fn(),
         readyState: 1,
       };
 
-      connectionHandler(mockWs);
+      connectionHandler(mockWs, createMockRequest());
 
       const rawHandler = getHandler(mockIrcClientInstance.on.mock.calls, 'raw');
 
       rawHandler({ from_server: true, line: ':server.test PING :test' });
+      await flushPromises();
 
       expect(mockWs.send).toHaveBeenCalledWith(
         JSON.stringify({
@@ -355,53 +382,56 @@ describe('main.ts', () => {
       );
     });
 
-    it('should send sic-server-event with raw line to server', () => {
+    it('should send sic-server-event with raw line to server', async () => {
       const mockWs = {
         on: vi.fn(),
         send: vi.fn(),
         readyState: 1,
       };
 
-      connectionHandler(mockWs);
+      connectionHandler(mockWs, createMockRequest());
 
       const rawHandler = getHandler(mockIrcClientInstance.on.mock.calls, 'raw');
 
       rawHandler({ from_server: false, line: 'PONG :test' });
+      await flushPromises();
 
       expect(mockWs.send).toHaveBeenCalledWith(
         JSON.stringify({ event: 'sic-server-event', data: { type: 'raw', line: 'PONG :test' } })
       );
     });
 
-    it('should not send raw event when line is missing', () => {
+    it('should not send raw event when line is missing', async () => {
       const mockWs = {
         on: vi.fn(),
         send: vi.fn(),
         readyState: 1,
       };
 
-      connectionHandler(mockWs);
+      connectionHandler(mockWs, createMockRequest());
 
       const rawHandler = getHandler(mockIrcClientInstance.on.mock.calls, 'raw');
 
       // Call with missing line
       rawHandler({ from_server: true });
+      await flushPromises();
 
       expect(mockWs.send).not.toHaveBeenCalled();
     });
 
-    it('should not send when client connection is not open', () => {
+    it('should not send when client connection is not open', async () => {
       const mockWs = {
         on: vi.fn(),
         send: vi.fn(),
         readyState: 3, // CLOSED
       };
 
-      connectionHandler(mockWs);
+      connectionHandler(mockWs, createMockRequest());
 
       const connectedHandler = getHandler(mockIrcClientInstance.on.mock.calls, 'connected');
 
       connectedHandler({});
+      await flushPromises();
 
       // send should not be called when readyState is not OPEN
       expect(mockWs.send).not.toHaveBeenCalled();
@@ -420,7 +450,7 @@ describe('main.ts', () => {
   });
 
   describe('Multiple connection handling', () => {
-    it('should only accept first connection as client', () => {
+    it('should only accept first connection as client', async () => {
       const mockWs1 = {
         on: vi.fn(),
         send: vi.fn(),
@@ -434,15 +464,16 @@ describe('main.ts', () => {
       };
 
       // Connect first client
-      connectionHandler(mockWs1);
+      connectionHandler(mockWs1, createMockRequest());
       // Connect second client
-      connectionHandler(mockWs2);
+      connectionHandler(mockWs2, createMockRequest());
 
       // Get the connected handler
       const connectedHandler = getHandler(mockIrcClientInstance.on.mock.calls, 'connected');
 
       // Trigger event
       connectedHandler({});
+      await flushPromises();
 
       // Only first client should receive the message
       expect(mockWs1.send).toHaveBeenCalled();
