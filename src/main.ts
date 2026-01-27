@@ -1,18 +1,24 @@
 import { WebSocketServer, WebSocket } from 'ws';
 import { IncomingMessage } from 'http';
-import { allowedOrigins, defaultWebsocketPort } from './config.js';
+import { allowedOrigins, defaultWebsocketPort, encryptionKey } from './config.js';
 import { handleEvents } from './events.js';
 import { Client } from './irc-client.js';
+import { initEncryption, encryptMessage, decryptMessage } from './encryption.js';
+
+// Initialize encryption
+initEncryption(encryptionKey).then(() => {
+  console.log(`\x1b[32m${new Date().toISOString()} Encryption enabled\x1b[0m`);
+});
 
 console.log(`\x1b[31m${new Date().toISOString()} websocket port: ${defaultWebsocketPort}\x1b[0m`);
 export const sicServerSocket = new WebSocketServer({ port: defaultWebsocketPort, path: '/SimpleIrcClient' });
 
 let connectedClient: WebSocket | null = null;
 
-const sendToClient = (event: string, data: any): void => {
-  const message = JSON.stringify({ event, data });
+const sendToClient = async (event: string, data: any): Promise<void> => {
   if (connectedClient && connectedClient.readyState === WebSocket.OPEN) {
-    connectedClient.send(message);
+    const encrypted = await encryptMessage({ event, data });
+    connectedClient.send(encrypted);
   }
 };
 
@@ -35,10 +41,11 @@ sicServerSocket.on('connection', (ws: WebSocket, request: IncomingMessage) => {
     console.log(`\x1b[33m${new Date().toISOString()} client connected\x1b[0m`);
   }
 
-  ws.on('message', (message: any) => {
+  ws.on('message', async (message: any) => {
     try {
       console.log(`\x1b[34m${new Date().toISOString()} ${message}\x1b[0m`);
-      const parsedData = JSON.parse(message.toString());
+
+      const parsedData = (await decryptMessage(message.toString())) as { event?: string; data?: unknown };
 
       if (parsedData.event === 'sic-client-event') {
         onClientEvent(parsedData.data);
