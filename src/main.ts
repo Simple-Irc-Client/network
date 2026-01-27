@@ -16,7 +16,7 @@ export const sicServerSocket = new WebSocketServer({ port: defaultWebsocketPort,
 let connectedClient: WebSocket | null = null;
 
 const sendToClient = async (event: string, data: any): Promise<void> => {
-  if (connectedClient && connectedClient.readyState === WebSocket.OPEN) {
+  if (connectedClient?.readyState === WebSocket.OPEN) {
     const encrypted = await encryptMessage({ event, data });
     connectedClient.send(encrypted);
   }
