@@ -1,5 +1,6 @@
 import { WebSocketServer, WebSocket } from 'ws';
-import { defaultWebsocketPort } from './config.js';
+import { IncomingMessage } from 'http';
+import { allowedOrigins, defaultWebsocketPort } from './config.js';
 import { handleEvents } from './events.js';
 import { Client } from './irc-client.js';
 
@@ -19,8 +20,15 @@ const onClientEvent = (data: any): void => {
   handleEvents(ircClient, data);
 };
 
-sicServerSocket.on('connection', (ws: WebSocket) => {
+sicServerSocket.on('connection', (ws: WebSocket, request: IncomingMessage) => {
   console.log(`\x1b[33m${new Date().toISOString()} new connection\x1b[0m`);
+
+  const origin = request.headers.origin;
+  if (origin && !allowedOrigins.includes(origin)) {
+    console.log(`\x1b[31m${new Date().toISOString()} rejected connection from origin: ${origin}\x1b[0m`);
+    ws.close(1008, 'Origin not allowed');
+    return;
+  }
 
   if (connectedClient === null) {
     connectedClient = ws;

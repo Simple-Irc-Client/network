@@ -8,7 +8,7 @@ import { type ConnectCommandPayload, type DisconnectCommandPayload, type RawComm
  * @returns
  */
 export const handleEvents = (ircClient: any, event: SICWebSocketPayload): void => {
-  switch (event.type) {
+  switch (event?.type) {
     case 'connect': {
       const connectMessage = event as ConnectCommandPayload;
       const connectParameters = {
