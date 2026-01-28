@@ -20,6 +20,7 @@ export const handleEvents = (ircClient: any, event: SICWebSocketPayload): void =
         ping_timeout: 120,
         port: connectMessage.event.server.port,
         username: connectMessage.event.nick,
+        tls: connectMessage.event.server.tls ?? false,
       };
 
       ircClient.connect(connectParameters);
