@@ -17,6 +17,7 @@ export interface ConnectCommandPayload {
       host: string;
       port: number;
       encoding?: string;
+      tls?: boolean;
     };
   };
 }
