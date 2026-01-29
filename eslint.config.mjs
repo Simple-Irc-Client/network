@@ -23,5 +23,8 @@ export default defineConfig(
       '@typescript-eslint/no-explicit-any': 'off',
       '@typescript-eslint/no-unused-vars': 'off',
     }
-  }
+  },
+  {
+    ignores: ['dist/', 'node_modules/', '*.js'],
+  },
 );
