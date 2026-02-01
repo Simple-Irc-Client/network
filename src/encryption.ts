@@ -20,15 +20,15 @@ export async function initEncryption(base64Key: string): Promise<void> {
 }
 
 /**
- * Encrypt a message object to base64 string
+ * Encrypt a raw string to base64 (no JSON wrapping)
  */
-export async function encryptMessage(data: unknown): Promise<string> {
+export async function encryptString(data: string): Promise<string> {
   if (!encryptionKey) {
     throw new Error('Encryption not initialized');
   }
 
   const iv = crypto.getRandomValues(new Uint8Array(12));
-  const messageBytes = new TextEncoder().encode(JSON.stringify(data));
+  const messageBytes = new TextEncoder().encode(data);
 
   const encrypted = await crypto.subtle.encrypt(
     { name: 'AES-GCM', iv },
@@ -45,9 +45,9 @@ export async function encryptMessage(data: unknown): Promise<string> {
 }
 
 /**
- * Decrypt a base64 string back to message object
+ * Decrypt a base64 string back to raw string (no JSON parsing)
  */
-export async function decryptMessage(encryptedBase64: string): Promise<unknown> {
+export async function decryptString(encryptedBase64: string): Promise<string> {
   if (!encryptionKey) {
     throw new Error('Encryption not initialized');
   }
@@ -64,7 +64,7 @@ export async function decryptMessage(encryptedBase64: string): Promise<unknown> 
     encryptedData
   );
 
-  return JSON.parse(new TextDecoder().decode(decrypted));
+  return new TextDecoder().decode(decrypted);
 }
 
 /**

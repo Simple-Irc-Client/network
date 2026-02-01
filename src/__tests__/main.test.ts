@@ -46,8 +46,6 @@ vi.mock('../irc-client.js', () => {
 // Mock encryption module to pass through unencrypted for testing
 vi.mock('../encryption.js', () => ({
   initEncryption: vi.fn().mockResolvedValue(undefined),
-  encryptMessage: vi.fn().mockImplementation((data) => Promise.resolve(JSON.stringify(data))),
-  decryptMessage: vi.fn().mockImplementation((data) => Promise.resolve(JSON.parse(data))),
 }));
 
 // Mock console to avoid noise in tests
