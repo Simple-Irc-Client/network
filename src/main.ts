@@ -1,119 +1,173 @@
+/**
+ * WebSocket Server for Simple IRC Client (Local Backend)
+ *
+ * Uses direct IRC protocol (raw IRC lines over WebSocket) with AES-256-GCM encryption.
+ * Server configuration is passed via query parameters.
+ *
+ * Connection URL format:
+ * ws://localhost:8667/webirc?host=irc.example.com&port=6697&tls=true&encoding=utf8
+ */
+
 import { WebSocketServer, WebSocket } from 'ws';
-import { IncomingMessage } from 'http';
-import { allowedOrigins, defaultWebsocketPort, encryptionKey } from './config.js';
-import { handleEvents } from './events.js';
+import { createServer, IncomingMessage } from 'http';
+import { Duplex } from 'stream';
+import { defaultWebsocketPort, defaultIrcQuitMessage, encryptionKey } from './config.js';
 import { Client } from './irc-client.js';
-import { initEncryption, encryptMessage, decryptMessage } from './encryption.js';
+import { initEncryption, encryptString, decryptString } from './encryption.js';
+
+const WEBSOCKET_PATH = '/webirc';
 
 // Initialize encryption
 initEncryption(encryptionKey).then(() => {
   console.log(`\x1b[32m${new Date().toISOString()} Encryption enabled\x1b[0m`);
 });
 
-console.log(`\x1b[31m${new Date().toISOString()} websocket port: ${defaultWebsocketPort}\x1b[0m`);
-export const sicServerSocket = new WebSocketServer({ port: defaultWebsocketPort, path: '/SimpleIrcClient' });
+// HTTP server for handling WebSocket upgrades
+const httpServer = createServer((_request, response) => {
+  response.end('Simple IRC Client Backend');
+});
+
+const wss = new WebSocketServer({ noServer: true });
 
 let connectedClient: WebSocket | null = null;
+let ircClient: Client | null = null;
 
-const sendToClient = async (event: string, data: any): Promise<void> => {
+/**
+ * Send a raw IRC line to the WebSocket client (encrypted)
+ */
+const sendRawToClient = async (line: string): Promise<void> => {
   if (connectedClient?.readyState === WebSocket.OPEN) {
-    const encrypted = await encryptMessage({ event, data });
+    const encrypted = await encryptString(line);
     connectedClient.send(encrypted);
   }
 };
 
-const onClientEvent = (data: any): void => {
-  handleEvents(ircClient, data);
-};
+/**
+ * Handle WebSocket upgrade requests
+ */
+httpServer.on('upgrade', (request: IncomingMessage, socket: Duplex, head: Buffer) => {
+  const requestUrl = new URL(
+    request.url ?? '/',
+    `http://${request.headers.host ?? 'localhost'}`
+  );
+  const requestPath = requestUrl.pathname;
 
-sicServerSocket.on('connection', (ws: WebSocket, request: IncomingMessage) => {
-  console.log(`\x1b[33m${new Date().toISOString()} new connection\x1b[0m`);
-
-  const origin = request.headers.origin;
-  if (origin && !allowedOrigins.includes(origin)) {
-    console.log(`\x1b[31m${new Date().toISOString()} rejected connection from origin: ${origin}\x1b[0m`);
-    ws.close(1008, 'Origin not allowed');
+  // Validate path
+  if (requestPath !== WEBSOCKET_PATH) {
+    socket.write('HTTP/1.1 404 Not Found\r\n\r\n');
+    socket.destroy();
     return;
   }
 
-  if (connectedClient === null) {
-    connectedClient = ws;
-    console.log(`\x1b[33m${new Date().toISOString()} client connected\x1b[0m`);
+  // Parse server configuration from query parameters
+  const host = requestUrl.searchParams.get('host');
+  const portStr = requestUrl.searchParams.get('port');
+  const port = portStr ? parseInt(portStr, 10) : null;
+  const tls = requestUrl.searchParams.get('tls') === 'true';
+  const encoding = (requestUrl.searchParams.get('encoding') ?? 'utf8') as BufferEncoding;
+
+  // Validate required parameters
+  if (!host || !port || isNaN(port)) {
+    socket.write('HTTP/1.1 400 Bad Request - Missing host or port\r\n\r\n');
+    socket.destroy();
+    return;
   }
 
-  ws.on('message', async (message: any) => {
+  // Only allow one connection at a time (local backend)
+  if (connectedClient !== null) {
+    socket.write('HTTP/1.1 409 Conflict - Already connected\r\n\r\n');
+    socket.destroy();
+    return;
+  }
+
+  // Accept WebSocket connection
+  wss.handleUpgrade(request, socket, head, (ws) => {
+    handleNewClient(ws, { host, port, tls, encoding });
+  });
+});
+
+/**
+ * Handle a new WebSocket client connection
+ */
+function handleNewClient(
+  ws: WebSocket,
+  serverConfig: { host: string; port: number; tls: boolean; encoding: BufferEncoding }
+): void {
+  connectedClient = ws;
+  console.log(`\x1b[36m${new Date().toISOString()} Client connected, target: ${serverConfig.host}:${serverConfig.port}\x1b[0m`);
+
+  // Create IRC client and connect
+  ircClient = new Client();
+  setupIrcEventHandlers(ircClient);
+
+  ircClient.connectRaw({
+    host: serverConfig.host,
+    port: serverConfig.port,
+    tls: serverConfig.tls,
+    encoding: serverConfig.encoding,
+  });
+
+  // Handle incoming WebSocket messages (encrypted raw IRC commands)
+  ws.on('message', async (data: Buffer) => {
     try {
-      console.log(`\x1b[34m${new Date().toISOString()} ${message}\x1b[0m`);
-
-      const parsedData = (await decryptMessage(message.toString())) as { event?: string; data?: unknown };
-
-      if (parsedData.event === 'sic-client-event') {
-        onClientEvent(parsedData.data);
+      const decrypted = await decryptString(data.toString());
+      // Handle multiple lines (some clients might batch)
+      const lines = decrypted.split(/\r?\n/).filter((line) => line.length > 0);
+      for (const line of lines) {
+        if (ircClient) {
+          ircClient.raw(line);
+        }
       }
     } catch (error) {
-      console.error(`\x1b[31m${new Date().toISOString()} Error parsing message: ${JSON.stringify(error)}\x1b[0m`);
+      console.error(`\x1b[31m${new Date().toISOString()} Error decrypting message: ${error}\x1b[0m`);
     }
   });
 
+  // Handle WebSocket close
   ws.on('close', () => {
-    console.log(`\x1b[33m${new Date().toISOString()} client disconnected\x1b[0m`);
-    if (connectedClient !== null) {
-      handleEvents(ircClient, { type: 'disconnect' });
-      connectedClient = null;
+    console.log(`\x1b[36m${new Date().toISOString()} Client disconnected\x1b[0m`);
+    if (ircClient) {
+      ircClient.quit(defaultIrcQuitMessage);
+      ircClient = null;
+    }
+    connectedClient = null;
+  });
+
+  // Handle WebSocket error
+  ws.on('error', (error: Error) => {
+    console.error(`\x1b[31m${new Date().toISOString()} WebSocket error: ${error.message}\x1b[0m`);
+  });
+}
+
+/**
+ * Set up event handlers for IRC client
+ */
+function setupIrcEventHandlers(client: Client): void {
+  // Raw IRC message from server - forward to WebSocket client (encrypted)
+  client.on('raw', (event: { line: string; from_server: boolean }) => {
+    if (event.from_server) {
+      console.log(`${new Date().toISOString()} >> ${event.line.trim()}`);
+      sendRawToClient(event.line);
+    } else {
+      console.log(`\x1b[32m${new Date().toISOString()} << ${event.line.trim()}\x1b[0m`);
     }
   });
 
-  ws.on('error', (error: Error) => {
-    console.error(`\x1b[31mWebSocket error: ${JSON.stringify(error)}\x1b[0m`);
+  // IRC connection closed - close WebSocket
+  client.on('close', () => {
+    if (connectedClient?.readyState === WebSocket.OPEN) {
+      connectedClient.close();
+    }
   });
-});
 
-export const ircClient = new Client();
+  // Socket error
+  client.on('error', (error: Error) => {
+    console.error(`\x1b[31m${new Date().toISOString()} IRC error: ${error.message}\x1b[0m`);
+    sendRawToClient(`ERROR :${error.message}`);
+  });
+}
 
-// Once the client has connected and successfully registered on the IRC network.
-// This is a good place to start joining channels.
-//
-// {
-//     nick: nick
-// }
-ircClient.on('connected', (_event: unknown) => {
-  sendToClient('sic-irc-event', { type: 'connected' });
-});
-
-// The client has disconnected from the network and failed to auto reconnect (if enabled).
-//
-// { }
-ircClient.on('close', (_event: unknown) => {
-  sendToClient('sic-irc-event', { type: 'close' });
-});
-
-// The client has disconnected from the network.
-//
-// { }
-ircClient.on('socket close', (_event: unknown) => {
-  sendToClient('sic-irc-event', { type: 'socket close' });
-});
-
-// The client has a connected socket to the network. Network registration will automatically start at this point.
-//
-// { }
-ircClient.on('socket connected', (_event: unknown) => {
-  sendToClient('sic-irc-event', { type: 'socket connected' });
-});
-
-// A valid raw line sent or received from the IRC server.
-//
-// {
-//     line: ':server.ircd.net 265 prawnsalad :Current Local Users: 214  Max: 411',
-//     from_server: true
-// }
-ircClient.on('raw', (event: any) => {
-  if (event?.from_server && event?.line) {
-    console.log(`${new Date().toISOString()} >> ${event.line?.trim()}`);
-    sendToClient('sic-irc-event', { type: 'raw', line: event.line });
-  }
-  if (!event?.from_server && event?.line) {
-    console.log(`\x1b[32m${new Date().toISOString()} << ${event.line?.trim()}\x1b[0m`);
-    sendToClient('sic-server-event', { type: 'raw', line: event.line });
-  }
+// Start server
+httpServer.listen(defaultWebsocketPort, () => {
+  console.log(`\x1b[32m${new Date().toISOString()} Server started on ws://localhost:${defaultWebsocketPort}${WEBSOCKET_PATH}\x1b[0m`);
 });
