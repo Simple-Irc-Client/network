@@ -67,8 +67,8 @@ httpServer.on('upgrade', (request: IncomingMessage, socket: Duplex, head: Buffer
   const encoding = (requestUrl.searchParams.get('encoding') ?? 'utf8') as BufferEncoding;
 
   // Validate required parameters
-  if (!host || !port || isNaN(port)) {
-    socket.write('HTTP/1.1 400 Bad Request - Missing host or port\r\n\r\n');
+  if (!host || !port || isNaN(port) || port < 1 || port > 65535) {
+    socket.write('HTTP/1.1 400 Bad Request - Missing or invalid host/port\r\n\r\n');
     socket.destroy();
     return;
   }
