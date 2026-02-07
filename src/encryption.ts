@@ -9,6 +9,10 @@ let encryptionKey: CryptoKey | null = null;
  * Key should be 32 bytes (256 bits) encoded as base64
  */
 export async function initEncryption(base64Key: string): Promise<void> {
+  if (!base64Key) {
+    encryptionKey = null;
+    return;
+  }
   const keyData = Buffer.from(base64Key, 'base64');
   encryptionKey = await crypto.subtle.importKey(
     'raw',

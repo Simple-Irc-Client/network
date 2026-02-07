@@ -19,7 +19,11 @@ const WEBSOCKET_PATH = '/webirc';
 
 // Initialize encryption
 initEncryption(encryptionKey).then(() => {
-  console.log(`\x1b[32m${new Date().toISOString()} Encryption enabled\x1b[0m`);
+  if (encryptionKey) {
+    console.log(`\x1b[32m${new Date().toISOString()} Encryption enabled\x1b[0m`);
+  } else {
+    console.log(`\x1b[33m${new Date().toISOString()} Encryption disabled (no ENCRYPTION_KEY set)\x1b[0m`);
+  }
 });
 
 // HTTP server for handling WebSocket upgrades
