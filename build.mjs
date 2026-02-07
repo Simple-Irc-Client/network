@@ -7,5 +7,6 @@ await esbuild.build({
   outfile: 'irc-network.js',
   define: {
     'process.env.ENCRYPTION_KEY': JSON.stringify(process.env.ENCRYPTION_KEY || ''),
+    'process.env.NODE_ENV': JSON.stringify(process.env.NODE_ENV || 'production'),
   },
 });

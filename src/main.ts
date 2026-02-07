@@ -123,7 +123,9 @@ function handleNewClient(
         }
       }
     } catch (error) {
-      console.error(`\x1b[31m${new Date().toISOString()} Error decrypting message: ${error}\x1b[0m`);
+      if (process.env.NODE_ENV !== 'production') {
+        console.error(`\x1b[31m${new Date().toISOString()} Error decrypting message: ${error}\x1b[0m`);
+      }
     }
   });
 
@@ -150,10 +152,14 @@ function setupIrcEventHandlers(client: Client): void {
   // Raw IRC message from server - forward to WebSocket client (encrypted)
   client.on('raw', (event: { line: string; from_server: boolean }) => {
     if (event.from_server) {
-      console.log(`${new Date().toISOString()} >> ${event.line.trim()}`);
+      if (process.env.NODE_ENV !== 'production') {
+        console.log(`${new Date().toISOString()} >> ${event.line.trim()}`);
+      }
       sendRawToClient(event.line);
     } else {
-      console.log(`\x1b[32m${new Date().toISOString()} << ${event.line.trim()}\x1b[0m`);
+      if (process.env.NODE_ENV !== 'production') {
+        console.log(`\x1b[32m${new Date().toISOString()} << ${event.line.trim()}\x1b[0m`);
+      }
     }
   });
 

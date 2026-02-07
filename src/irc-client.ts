@@ -137,7 +137,9 @@ export class Client extends EventEmitter {
   }
 
   private onSocketError(error: Error): void {
-    console.error(`IRC socket error: ${error.message}`);
+    if (process.env.NODE_ENV !== 'production') {
+      console.error(`IRC socket error: ${error.message}`);
+    }
   }
 
   private startPingInterval(): void {
@@ -156,7 +158,9 @@ export class Client extends EventEmitter {
 
     const timeout = (this.options?.ping_timeout ?? 120) * 1000;
     this.pingTimeout = setTimeout(() => {
-      console.error('IRC ping timeout - disconnecting');
+      if (process.env.NODE_ENV !== 'production') {
+        console.error('IRC ping timeout - disconnecting');
+      }
       this.socket?.destroy();
     }, timeout);
   }
