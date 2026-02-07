@@ -6,4 +6,5 @@ dist
 .idea
 .DS_Store
 
+.env
 irc-network.js
