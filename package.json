@@ -5,8 +5,8 @@
   "license": "AGPL-3.0-or-later",
   "type": "module",
   "scripts": {
-    "start": "tsx ./server.ts",
-    "dev": "tsx ./server.ts",
+    "start": "tsx --env-file=.env ./server.ts",
+    "dev": "tsx --env-file=.env ./server.ts",
     "pre-build": "tsc",
     "build": "node build.mjs",
     "lint": "tsc && npx eslint src/**/*.{ts,tsx}",
