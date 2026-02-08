@@ -39,6 +39,12 @@ const wss = new WebSocketServer({ noServer: true, maxPayload: 64 * 1024 });
 let connectedClient: WebSocket | null = null;
 let ircClient: Client | null = null;
 
+// Rate limiting: max 50 messages per 5-second window
+const RATE_LIMIT_MAX_MESSAGES = 50;
+const RATE_LIMIT_WINDOW_MS = 5000;
+let messageCount = 0;
+let rateLimitWindowStart = 0;
+
 /**
  * Send a raw IRC line to the WebSocket client (encrypted)
  */
@@ -118,8 +124,23 @@ function handleNewClient(
     encoding: serverConfig.encoding,
   });
 
+  // Reset rate limit state for new connection
+  messageCount = 0;
+  rateLimitWindowStart = Date.now();
+
   // Handle incoming WebSocket messages (encrypted raw IRC commands)
   ws.on('message', async (data: Buffer) => {
+    // Rate limiting
+    const now = Date.now();
+    if (now - rateLimitWindowStart > RATE_LIMIT_WINDOW_MS) {
+      messageCount = 0;
+      rateLimitWindowStart = now;
+    }
+    messageCount++;
+    if (messageCount > RATE_LIMIT_MAX_MESSAGES) {
+      return;
+    }
+
     try {
       const decrypted = await decryptString(data.toString());
       // Handle multiple lines (some clients might batch)

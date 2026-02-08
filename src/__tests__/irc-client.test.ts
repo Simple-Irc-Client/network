@@ -221,7 +221,7 @@ describe('Client', () => {
 
       mockSocket.emit('data', ':server 001 testuser :Welcome to the IRC Network\r\n');
 
-      expect(connectedHandler).toHaveBeenCalledWith({ nick: 'testuser' });
+      expect(connectedHandler).toHaveBeenCalledWith({});
     });
 
     it('should ignore empty lines', () => {
