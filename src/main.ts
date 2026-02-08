@@ -155,7 +155,9 @@ function setupIrcEventHandlers(client: Client): void {
       if (process.env.NODE_ENV !== 'production') {
         console.log(`${new Date().toISOString()} >> ${event.line.trim()}`);
       }
-      sendRawToClient(event.line);
+      sendRawToClient(event.line).catch((err) => {
+        console.error(`\x1b[31m${new Date().toISOString()} Failed to send to client: ${err}\x1b[0m`);
+      });
     } else {
       if (process.env.NODE_ENV !== 'production') {
         console.log(`\x1b[32m${new Date().toISOString()} << ${event.line.trim()}\x1b[0m`);
@@ -173,7 +175,9 @@ function setupIrcEventHandlers(client: Client): void {
   // Socket error
   client.on('error', (error: Error) => {
     console.error(`\x1b[31m${new Date().toISOString()} IRC error: ${error.message}\x1b[0m`);
-    sendRawToClient(`ERROR :${error.message}`);
+    sendRawToClient(`ERROR :${error.message}`).catch((err) => {
+      console.error(`\x1b[31m${new Date().toISOString()} Failed to send error to client: ${err}\x1b[0m`);
+    });
   });
 }
 
