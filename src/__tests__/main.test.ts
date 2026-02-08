@@ -21,10 +21,14 @@ function createMockClient() {
   return Object.assign({}, mockIrcClientInstance);
 }
 
+// Track constructor options for assertions
+let lastWssOptions: Record<string, unknown> = {};
+
 // Mock ws module before importing main
 vi.mock('ws', () => {
   return {
-    WebSocketServer: function MockWebSocketServer() {
+    WebSocketServer: function MockWebSocketServer(options: Record<string, unknown>) {
+      lastWssOptions = options || {};
       return createMockWebSocketServer();
     },
     WebSocket: {
@@ -103,6 +107,10 @@ describe('main.ts', () => {
   describe('WebSocket Server Setup', () => {
     it('should register connection handler', () => {
       expect(mockWsServerInstance.on).toHaveBeenCalledWith('connection', expect.any(Function));
+    });
+
+    it('should set maxPayload on WebSocket server', () => {
+      expect(lastWssOptions.maxPayload).toBe(64 * 1024);
     });
   });
 

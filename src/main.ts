@@ -34,7 +34,7 @@ const httpServer = createServer((_request, response) => {
   response.end('Simple IRC Client Backend');
 });
 
-const wss = new WebSocketServer({ noServer: true });
+const wss = new WebSocketServer({ noServer: true, maxPayload: 64 * 1024 });
 
 let connectedClient: WebSocket | null = null;
 let ircClient: Client | null = null;
