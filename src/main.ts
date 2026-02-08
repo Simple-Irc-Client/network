@@ -178,6 +178,6 @@ function setupIrcEventHandlers(client: Client): void {
 }
 
 // Start server
-httpServer.listen(defaultWebsocketPort, () => {
-  console.log(`\x1b[32m${new Date().toISOString()} Server started on ws://localhost:${defaultWebsocketPort}${WEBSOCKET_PATH}\x1b[0m`);
+httpServer.listen(defaultWebsocketPort, '127.0.0.1', () => {
+  console.log(`\x1b[32m${new Date().toISOString()} Server started on ws://127.0.0.1:${defaultWebsocketPort}${WEBSOCKET_PATH}\x1b[0m`);
 });
