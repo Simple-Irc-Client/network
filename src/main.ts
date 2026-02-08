@@ -17,6 +17,11 @@ import { initEncryption, encryptString, decryptString } from './encryption.js';
 
 const WEBSOCKET_PATH = '/webirc';
 
+/** Strip control/escape characters from untrusted strings before logging */
+// eslint-disable-next-line no-control-regex
+const CONTROL_RE = /[\x00-\x08\x0b\x0c\x0e-\x1f\x7f\x1b]/g;
+const sanitizeLog = (s: string): string => s.replace(CONTROL_RE, '');
+
 // Initialize encryption
 initEncryption(encryptionKey).then(() => {
   if (encryptionKey) {
@@ -111,7 +116,7 @@ function handleNewClient(
   serverConfig: { host: string; port: number; tls: boolean; encoding: BufferEncoding }
 ): void {
   connectedClient = ws;
-  console.log(`\x1b[36m${new Date().toISOString()} Client connected, target: ${serverConfig.host}:${serverConfig.port}\x1b[0m`);
+  console.log(`\x1b[36m${new Date().toISOString()} Client connected, target: ${sanitizeLog(serverConfig.host)}:${serverConfig.port}\x1b[0m`);
 
   // Create IRC client and connect
   ircClient = new Client();
@@ -152,7 +157,7 @@ function handleNewClient(
       }
     } catch (error) {
       if (process.env.NODE_ENV !== 'production') {
-        console.error(`\x1b[31m${new Date().toISOString()} Error decrypting message: ${error}\x1b[0m`);
+        console.error(`\x1b[31m${new Date().toISOString()} Error decrypting message: ${sanitizeLog(String(error))}\x1b[0m`);
       }
     }
   });
@@ -169,7 +174,7 @@ function handleNewClient(
 
   // Handle WebSocket error
   ws.on('error', (error: Error) => {
-    console.error(`\x1b[31m${new Date().toISOString()} WebSocket error: ${error.message}\x1b[0m`);
+    console.error(`\x1b[31m${new Date().toISOString()} WebSocket error: ${sanitizeLog(error.message)}\x1b[0m`);
   });
 }
 
@@ -181,14 +186,14 @@ function setupIrcEventHandlers(client: Client): void {
   client.on('raw', (event: { line: string; from_server: boolean }) => {
     if (event.from_server) {
       if (process.env.NODE_ENV !== 'production') {
-        console.log(`${new Date().toISOString()} >> ${event.line.trim()}`);
+        console.log(`${new Date().toISOString()} >> ${sanitizeLog(event.line.trim())}`);
       }
       sendRawToClient(event.line).catch((err) => {
-        console.error(`\x1b[31m${new Date().toISOString()} Failed to send to client: ${err}\x1b[0m`);
+        console.error(`\x1b[31m${new Date().toISOString()} Failed to send to client: ${sanitizeLog(String(err))}\x1b[0m`);
       });
     } else {
       if (process.env.NODE_ENV !== 'production') {
-        console.log(`\x1b[32m${new Date().toISOString()} << ${event.line.trim()}\x1b[0m`);
+        console.log(`\x1b[32m${new Date().toISOString()} << ${sanitizeLog(event.line.trim())}\x1b[0m`);
       }
     }
   });
@@ -202,9 +207,9 @@ function setupIrcEventHandlers(client: Client): void {
 
   // Socket error
   client.on('error', (error: Error) => {
-    console.error(`\x1b[31m${new Date().toISOString()} IRC error: ${error.message}\x1b[0m`);
+    console.error(`\x1b[31m${new Date().toISOString()} IRC error: ${sanitizeLog(error.message)}\x1b[0m`);
     sendRawToClient(`ERROR :${error.message}`).catch((err) => {
-      console.error(`\x1b[31m${new Date().toISOString()} Failed to send error to client: ${err}\x1b[0m`);
+      console.error(`\x1b[31m${new Date().toISOString()} Failed to send error to client: ${sanitizeLog(String(err))}\x1b[0m`);
     });
   });
 }
