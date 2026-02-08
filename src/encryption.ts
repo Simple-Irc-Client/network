@@ -14,6 +14,9 @@ export async function initEncryption(base64Key: string): Promise<void> {
     return;
   }
   const keyData = Buffer.from(base64Key, 'base64');
+  if (keyData.length !== 32) {
+    throw new Error(`Encryption key must be exactly 32 bytes (256 bits), got ${keyData.length} bytes`);
+  }
   encryptionKey = await crypto.subtle.importKey(
     'raw',
     keyData,

@@ -24,6 +24,9 @@ initEncryption(encryptionKey).then(() => {
   } else {
     console.log(`\x1b[33m${new Date().toISOString()} Encryption disabled (no ENCRYPTION_KEY set)\x1b[0m`);
   }
+}).catch((err: Error) => {
+  console.error(`\x1b[31m${new Date().toISOString()} Encryption init failed: ${err.message}\x1b[0m`);
+  process.exit(1);
 });
 
 // HTTP server for handling WebSocket upgrades
