@@ -44,8 +44,12 @@ let ircClient: Client | null = null;
  */
 const sendRawToClient = async (line: string): Promise<void> => {
   if (connectedClient?.readyState === WebSocket.OPEN) {
-    const encrypted = await encryptString(line);
-    connectedClient.send(encrypted);
+    try {
+      const encrypted = await encryptString(line);
+      connectedClient.send(encrypted);
+    } catch {
+      // Fail closed — drop the message rather than sending unencrypted
+    }
   }
 };
 
