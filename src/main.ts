@@ -149,7 +149,7 @@ function handleNewClient(
     try {
       const decrypted = await decryptString(data.toString());
       // Handle multiple lines (some clients might batch)
-      const lines = decrypted.split(/\r?\n/).filter((line) => line.length > 0);
+      const lines = decrypted.split(/[\r\n]+/).filter((line) => line.length > 0);
       for (const line of lines) {
         if (ircClient) {
           ircClient.raw(line);

@@ -125,7 +125,7 @@ export class Client extends EventEmitter {
 
   private sendRaw(line: string): void {
     if (this.socket && !this.socket.destroyed) {
-      this.socket.write(`${line}\r\n`);
+      this.socket.write(`${line.replace(/[\r\n]/g, '')}\r\n`);
       this.emit('raw', { line, from_server: false });
     }
   }
