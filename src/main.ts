@@ -218,3 +218,24 @@ function setupIrcEventHandlers(client: Client): void {
 httpServer.listen(defaultWebsocketPort, '127.0.0.1', () => {
   console.log(`\x1b[32m${new Date().toISOString()} Server started on ws://127.0.0.1:${defaultWebsocketPort}${WEBSOCKET_PATH}\x1b[0m`);
 });
+
+// Graceful shutdown
+const shutdown = () => {
+  console.log(`\x1b[33m${new Date().toISOString()} Shutting down...\x1b[0m`);
+  if (ircClient) {
+    ircClient.quit(defaultIrcQuitMessage);
+    ircClient = null;
+  }
+  if (connectedClient) {
+    connectedClient.close();
+    connectedClient = null;
+  }
+  wss.close();
+  httpServer.close(() => {
+    console.log(`\x1b[33m${new Date().toISOString()} Server stopped\x1b[0m`);
+    process.exit(0);
+  });
+};
+
+process.once('SIGTERM', shutdown);
+process.once('SIGINT', shutdown);
