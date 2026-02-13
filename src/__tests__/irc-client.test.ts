@@ -348,8 +348,10 @@ describe('Client', () => {
       expect(mockSocket.write).not.toHaveBeenCalled();
     });
 
-    it('should log error on socket error', () => {
+    it('should log error and emit error event on socket error', () => {
       const client = new Client();
+      const errorHandler = vi.fn();
+      client.on('error', errorHandler);
       client.connect(defaultOptions);
       connectCallback?.();
 
@@ -357,6 +359,7 @@ describe('Client', () => {
       mockSocket.emit('error', error);
 
       expect(console.error).toHaveBeenCalledWith('IRC socket error: Connection reset');
+      expect(errorHandler).toHaveBeenCalledWith(error);
     });
   });
 

@@ -86,7 +86,11 @@ httpServer.on('upgrade', (request: IncomingMessage, socket: Duplex, head: Buffer
   const portStr = requestUrl.searchParams.get('port');
   const port = portStr ? parseInt(portStr, 10) : null;
   const tls = requestUrl.searchParams.get('tls') === 'true';
-  const encoding = (requestUrl.searchParams.get('encoding') ?? 'utf8') as BufferEncoding;
+  const VALID_ENCODINGS: ReadonlySet<BufferEncoding> = new Set([
+    'utf8', 'utf-8', 'ascii', 'latin1', 'binary', 'utf16le', 'utf-16le', 'ucs2', 'ucs-2', 'base64', 'hex',
+  ]);
+  const rawEncoding = requestUrl.searchParams.get('encoding') ?? 'utf8';
+  const encoding: BufferEncoding = VALID_ENCODINGS.has(rawEncoding as BufferEncoding) ? (rawEncoding as BufferEncoding) : 'utf8';
 
   // Validate required parameters
   if (!host || !port || isNaN(port) || port < 1 || port > 65535) {

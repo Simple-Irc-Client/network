@@ -140,6 +140,7 @@ export class Client extends EventEmitter {
     if (process.env.NODE_ENV !== 'production') {
       console.error(`IRC socket error: ${error.message}`);
     }
+    this.emit('error', error);
   }
 
   private startPingInterval(): void {
