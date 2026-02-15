@@ -8,8 +8,23 @@ const mockIrcClientInstance = {
   raw: vi.fn(),
 };
 
+// Track all created clients for connection isolation tests
+const allCreatedClients: Array<{ on: ReturnType<typeof vi.fn>; connectRaw: ReturnType<typeof vi.fn>; quit: ReturnType<typeof vi.fn>; raw: ReturnType<typeof vi.fn> }> = [];
+
 function createMockClient() {
-  return Object.assign({}, mockIrcClientInstance);
+  const client = {
+    on: vi.fn(),
+    connectRaw: vi.fn(),
+    quit: vi.fn(),
+    raw: vi.fn(),
+  };
+  // Also update the shared instance so existing single-connection tests work
+  mockIrcClientInstance.on = client.on;
+  mockIrcClientInstance.connectRaw = client.connectRaw;
+  mockIrcClientInstance.quit = client.quit;
+  mockIrcClientInstance.raw = client.raw;
+  allCreatedClients.push(client);
+  return client;
 }
 
 // Track WebSocketServer constructor options
@@ -136,6 +151,7 @@ describe('main.ts', () => {
     });
     capturedUpgradeHandler = null;
     handleUpgradeCallback = null;
+    allCreatedClients.length = 0;
 
     await import('../main.js');
     await flushPromises();
@@ -294,6 +310,52 @@ describe('main.ts', () => {
       await flushPromises();
 
       expect(mockIrcClientInstance.raw).toHaveBeenCalledTimes(50);
+    });
+  });
+
+  describe('Connection isolation', () => {
+    it('should not send stale IRC events to a new WebSocket after reconnect', async () => {
+      // First connection
+      const { mockWs: ws1 } = simulateUpgrade('irc.first.com', 6667);
+      const client1 = allCreatedClients[allCreatedClients.length - 1];
+      const client1RawHandler = getHandler(client1.on.mock.calls, 'raw');
+
+      // Close first connection (simulate WS close)
+      const ws1CloseHandler = getHandler(ws1.on.mock.calls, 'close');
+      ws1CloseHandler();
+      ws1.readyState = 3; // CLOSED
+
+      // Second connection
+      const { mockWs: ws2 } = simulateUpgrade('irc.second.com', 6667);
+
+      // Fire a stale 'raw' event from the FIRST IRC client
+      client1RawHandler({ from_server: true, line: ':old PRIVMSG #leak :should not arrive' });
+      await flushPromises();
+
+      // The stale event should NOT appear on the new WebSocket
+      expect(ws2.send).not.toHaveBeenCalled();
+      // It tried to send on ws1 which is CLOSED, so send is not called there either
+      expect(ws1.send).not.toHaveBeenCalled();
+    });
+
+    it('should not quit new IRC client when old WebSocket close fires late', () => {
+      // First connection
+      const { mockWs: ws1 } = simulateUpgrade('irc.first.com', 6667);
+      const client1 = allCreatedClients[allCreatedClients.length - 1];
+
+      // Simulate the first WS closing and immediately reconnecting
+      const ws1CloseHandler = getHandler(ws1.on.mock.calls, 'close');
+      ws1CloseHandler();
+      ws1.readyState = 3;
+
+      // Second connection
+      simulateUpgrade('irc.second.com', 6667);
+      const client2 = allCreatedClients[allCreatedClients.length - 1];
+
+      // client1 should have been quit by ws1's close handler
+      expect(client1.quit).toHaveBeenCalled();
+      // client2 should NOT have been quit
+      expect(client2.quit).not.toHaveBeenCalled();
     });
   });
 });

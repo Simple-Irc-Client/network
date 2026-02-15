@@ -54,13 +54,13 @@ let messageCount = 0;
 let rateLimitWindowStart = 0;
 
 /**
- * Send a raw IRC line to the WebSocket client (encrypted)
+ * Send a raw IRC line to a specific WebSocket client (encrypted)
  */
-const sendRawToClient = async (line: string): Promise<void> => {
-  if (connectedClient?.readyState === WebSocket.OPEN) {
+const sendRawToClient = async (ws: WebSocket, line: string): Promise<void> => {
+  if (ws.readyState === WebSocket.OPEN) {
     try {
       const encrypted = await encryptString(line);
-      connectedClient.send(encrypted);
+      ws.send(encrypted);
     } catch {
       // Fail closed — drop the message rather than sending unencrypted
     }
@@ -125,11 +125,13 @@ function handleNewClient(
   connectedClient = ws;
   console.log(`\x1b[36m${new Date().toISOString()} Client connected, target: ${sanitizeLog(serverConfig.host)}:${serverConfig.port}\x1b[0m`);
 
-  // Create IRC client and connect
-  ircClient = new Client();
-  setupIrcEventHandlers(ircClient);
+  // Create IRC client and connect — capture local references so closures
+  // never touch a different connection's state on rapid reconnect.
+  const client = new Client();
+  ircClient = client;
+  setupIrcEventHandlers(client, ws);
 
-  ircClient.connectRaw({
+  client.connectRaw({
     host: serverConfig.host,
     port: serverConfig.port,
     tls: serverConfig.tls,
@@ -158,9 +160,7 @@ function handleNewClient(
       // Handle multiple lines (some clients might batch)
       const lines = decrypted.split(/[\r\n]+/).filter((line) => line.length > 0);
       for (const line of lines) {
-        if (ircClient) {
-          ircClient.raw(line);
-        }
+        client.raw(line);
       }
     } catch (error) {
       if (process.env.NODE_ENV !== 'production') {
@@ -172,11 +172,10 @@ function handleNewClient(
   // Handle WebSocket close
   ws.on('close', () => {
     console.log(`\x1b[36m${new Date().toISOString()} Client disconnected\x1b[0m`);
-    if (ircClient) {
-      ircClient.quit(defaultIrcQuitMessage);
-      ircClient = null;
-    }
-    connectedClient = null;
+    client.quit(defaultIrcQuitMessage);
+    // Only clear globals if they still belong to this connection
+    if (ircClient === client) ircClient = null;
+    if (connectedClient === ws) connectedClient = null;
   });
 
   // Handle WebSocket error
@@ -186,16 +185,18 @@ function handleNewClient(
 }
 
 /**
- * Set up event handlers for IRC client
+ * Set up event handlers for IRC client.
+ * Uses the local `ws` reference so stale events from a previous connection
+ * never interfere with a newer one.
  */
-function setupIrcEventHandlers(client: Client): void {
+function setupIrcEventHandlers(client: Client, ws: WebSocket): void {
   // Raw IRC message from server - forward to WebSocket client (encrypted)
   client.on('raw', (event: { line: string; from_server: boolean }) => {
     if (event.from_server) {
       if (process.env.NODE_ENV !== 'production') {
         console.log(`${new Date().toISOString()} >> ${sanitizeLog(event.line.trim())}`);
       }
-      sendRawToClient(event.line).catch((err) => {
+      sendRawToClient(ws, event.line).catch((err) => {
         console.error(`\x1b[31m${new Date().toISOString()} Failed to send to client: ${sanitizeLog(String(err))}\x1b[0m`);
       });
     } else {
@@ -207,15 +208,15 @@ function setupIrcEventHandlers(client: Client): void {
 
   // IRC connection closed - close WebSocket
   client.on('close', () => {
-    if (connectedClient?.readyState === WebSocket.OPEN) {
-      connectedClient.close();
+    if (ws.readyState === WebSocket.OPEN) {
+      ws.close();
     }
   });
 
   // Socket error
   client.on('error', (error: Error) => {
     console.error(`\x1b[31m${new Date().toISOString()} IRC error: ${sanitizeLog(error.message)}\x1b[0m`);
-    sendRawToClient(`ERROR :${stripCRLF(error.message)}`).catch((err) => {
+    sendRawToClient(ws, `ERROR :${stripCRLF(error.message)}`).catch((err) => {
       console.error(`\x1b[31m${new Date().toISOString()} Failed to send error to client: ${sanitizeLog(String(err))}\x1b[0m`);
     });
   });
