@@ -22,6 +22,9 @@ const WEBSOCKET_PATH = '/webirc';
 const CONTROL_RE = /[\x00-\x08\x0b\x0c\x0e-\x1f\x7f\x1b]/g;
 const sanitizeLog = (s: string): string => s.replace(CONTROL_RE, '');
 
+/** Strip CR/LF to prevent IRC line injection in constructed messages */
+const stripCRLF = (s: string): string => s.replace(/[\r\n]/g, '');
+
 // Initialize encryption
 initEncryption(encryptionKey).then(() => {
   if (encryptionKey) {
@@ -212,7 +215,7 @@ function setupIrcEventHandlers(client: Client): void {
   // Socket error
   client.on('error', (error: Error) => {
     console.error(`\x1b[31m${new Date().toISOString()} IRC error: ${sanitizeLog(error.message)}\x1b[0m`);
-    sendRawToClient(`ERROR :${error.message}`).catch((err) => {
+    sendRawToClient(`ERROR :${stripCRLF(error.message)}`).catch((err) => {
       console.error(`\x1b[31m${new Date().toISOString()} Failed to send error to client: ${sanitizeLog(String(err))}\x1b[0m`);
     });
   });

@@ -259,6 +259,18 @@ describe('main.ts', () => {
     });
   });
 
+  describe('Error message sanitization', () => {
+    it('should strip CRLF from error messages forwarded to client', async () => {
+      const { mockWs } = simulateUpgrade();
+      const errorHandler = getHandler(mockIrcClientInstance.on.mock.calls, 'error');
+
+      errorHandler(new Error('Connection refused\r\nPRIVMSG #channel :injected'));
+      await flushPromises();
+
+      expect(mockWs.send).toHaveBeenCalledWith('ERROR :Connection refusedPRIVMSG #channel :injected');
+    });
+  });
+
   describe('Rate limiting', () => {
     it('should forward messages within the rate limit', async () => {
       const { mockWs } = simulateUpgrade();
