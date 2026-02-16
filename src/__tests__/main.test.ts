@@ -9,7 +9,7 @@ const mockIrcClientInstance = {
 };
 
 // Track all created clients for connection isolation tests
-const allCreatedClients: Array<{ on: ReturnType<typeof vi.fn>; connectRaw: ReturnType<typeof vi.fn>; quit: ReturnType<typeof vi.fn>; raw: ReturnType<typeof vi.fn> }> = [];
+const allCreatedClients: { on: ReturnType<typeof vi.fn>; connectRaw: ReturnType<typeof vi.fn>; quit: ReturnType<typeof vi.fn>; raw: ReturnType<typeof vi.fn> }[] = [];
 
 function createMockClient() {
   const client = {
@@ -317,6 +317,7 @@ describe('main.ts', () => {
     it('should not send stale IRC events to a new WebSocket after reconnect', async () => {
       // First connection
       const { mockWs: ws1 } = simulateUpgrade('irc.first.com', 6667);
+      // eslint-disable-next-line @typescript-eslint/no-non-null-assertion
       const client1 = allCreatedClients[allCreatedClients.length - 1]!;
       const client1RawHandler = getHandler(client1.on.mock.calls, 'raw');
 
@@ -341,6 +342,7 @@ describe('main.ts', () => {
     it('should not quit new IRC client when old WebSocket close fires late', () => {
       // First connection
       const { mockWs: ws1 } = simulateUpgrade('irc.first.com', 6667);
+      // eslint-disable-next-line @typescript-eslint/no-non-null-assertion
       const client1 = allCreatedClients[allCreatedClients.length - 1]!;
 
       // Simulate the first WS closing and immediately reconnecting
@@ -350,6 +352,7 @@ describe('main.ts', () => {
 
       // Second connection
       simulateUpgrade('irc.second.com', 6667);
+      // eslint-disable-next-line @typescript-eslint/no-non-null-assertion
       const client2 = allCreatedClients[allCreatedClients.length - 1]!;
 
       // client1 should have been quit by ws1's close handler
