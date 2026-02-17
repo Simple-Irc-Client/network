@@ -12,7 +12,7 @@ import { WebSocketServer, WebSocket } from 'ws';
 import { createServer, IncomingMessage } from 'http';
 import { Duplex } from 'stream';
 import { defaultWebsocketPort, defaultIrcQuitMessage, encryptionKey } from './config.js';
-import { Client } from './irc-client.js';
+import { IrcClient } from './irc-client.js';
 import { initEncryption, encryptString, decryptString } from './encryption.js';
 
 const WEBSOCKET_PATH = '/webirc';
@@ -45,7 +45,7 @@ const httpServer = createServer((_request, response) => {
 const wss = new WebSocketServer({ noServer: true, maxPayload: 64 * 1024 });
 
 let connectedClient: WebSocket | null = null;
-let ircClient: Client | null = null;
+let ircClient: IrcClient | null = null;
 
 // Rate limiting: max 50 messages per 5-second window
 const RATE_LIMIT_MAX_MESSAGES = 50;
@@ -127,7 +127,7 @@ function handleNewClient(
 
   // Create IRC client and connect — capture local references so closures
   // never touch a different connection's state on rapid reconnect.
-  const client = new Client();
+  const client = new IrcClient();
   ircClient = client;
   setupIrcEventHandlers(client, ws);
 
@@ -160,7 +160,7 @@ function handleNewClient(
       // Handle multiple lines (some clients might batch)
       const lines = decrypted.split(/[\r\n]+/).filter((line) => line.length > 0);
       for (const line of lines) {
-        client.raw(line);
+        client.send(line);
       }
     } catch (error) {
       if (process.env.NODE_ENV !== 'production') {
@@ -189,19 +189,19 @@ function handleNewClient(
  * Uses the local `ws` reference so stale events from a previous connection
  * never interfere with a newer one.
  */
-function setupIrcEventHandlers(client: Client, ws: WebSocket): void {
+function setupIrcEventHandlers(client: IrcClient, ws: WebSocket): void {
   // Raw IRC message from server - forward to WebSocket client (encrypted)
-  client.on('raw', (event: { line: string; from_server: boolean }) => {
-    if (event.from_server) {
+  client.on('raw', (line: string, fromServer: boolean) => {
+    if (fromServer) {
       if (process.env.NODE_ENV !== 'production') {
-        console.log(`${new Date().toISOString()} >> ${sanitizeLog(event.line.trim())}`);
+        console.log(`${new Date().toISOString()} >> ${sanitizeLog(line.trim())}`);
       }
-      sendRawToClient(ws, event.line).catch((err) => {
+      sendRawToClient(ws, line).catch((err) => {
         console.error(`\x1b[31m${new Date().toISOString()} Failed to send to client: ${sanitizeLog(String(err))}\x1b[0m`);
       });
     } else {
       if (process.env.NODE_ENV !== 'production') {
-        console.log(`\x1b[32m${new Date().toISOString()} << ${sanitizeLog(event.line.trim())}\x1b[0m`);
+        console.log(`\x1b[32m${new Date().toISOString()} << ${sanitizeLog(line.trim())}\x1b[0m`);
       }
     }
   });

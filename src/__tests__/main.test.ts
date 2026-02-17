@@ -5,24 +5,24 @@ const mockIrcClientInstance = {
   on: vi.fn(),
   connectRaw: vi.fn(),
   quit: vi.fn(),
-  raw: vi.fn(),
+  send: vi.fn(),
 };
 
 // Track all created clients for connection isolation tests
-const allCreatedClients: { on: ReturnType<typeof vi.fn>; connectRaw: ReturnType<typeof vi.fn>; quit: ReturnType<typeof vi.fn>; raw: ReturnType<typeof vi.fn> }[] = [];
+const allCreatedClients: { on: ReturnType<typeof vi.fn>; connectRaw: ReturnType<typeof vi.fn>; quit: ReturnType<typeof vi.fn>; send: ReturnType<typeof vi.fn> }[] = [];
 
 function createMockClient() {
   const client = {
     on: vi.fn(),
     connectRaw: vi.fn(),
     quit: vi.fn(),
-    raw: vi.fn(),
+    send: vi.fn(),
   };
   // Also update the shared instance so existing single-connection tests work
   mockIrcClientInstance.on = client.on;
   mockIrcClientInstance.connectRaw = client.connectRaw;
   mockIrcClientInstance.quit = client.quit;
-  mockIrcClientInstance.raw = client.raw;
+  mockIrcClientInstance.send = client.send;
   allCreatedClients.push(client);
   return client;
 }
@@ -48,7 +48,7 @@ vi.mock('ws', () => ({
 }));
 
 vi.mock('../irc-client.js', () => ({
-  Client: function MockClient() {
+  IrcClient: function MockIrcClient() {
     return createMockClient();
   },
 }));
@@ -137,7 +137,7 @@ describe('main.ts', () => {
     mockIrcClientInstance.on = vi.fn();
     mockIrcClientInstance.connectRaw = vi.fn();
     mockIrcClientInstance.quit = vi.fn();
-    mockIrcClientInstance.raw = vi.fn();
+    mockIrcClientInstance.send = vi.fn();
     mockWsServerInstance.handleUpgrade = vi.fn((_req: unknown, _socket: unknown, _head: unknown, cb: (ws: unknown) => void) => {
       handleUpgradeCallback = cb;
     });
@@ -231,7 +231,7 @@ describe('main.ts', () => {
       messageHandler(Buffer.from('PING :test'));
       await flushPromises();
 
-      expect(mockIrcClientInstance.raw).toHaveBeenCalledWith('PING :test');
+      expect(mockIrcClientInstance.send).toHaveBeenCalledWith('PING :test');
     });
 
     it('should disconnect IRC client on WebSocket close', () => {
@@ -247,7 +247,7 @@ describe('main.ts', () => {
       const { mockWs } = simulateUpgrade();
       const rawHandler = getHandler(mockIrcClientInstance.on.mock.calls, 'raw');
 
-      rawHandler({ from_server: true, line: ':server PING :test' });
+      rawHandler(':server PING :test', true);
       await flushPromises();
 
       expect(mockWs.send).toHaveBeenCalledWith(':server PING :test');
@@ -257,7 +257,7 @@ describe('main.ts', () => {
       const { mockWs } = simulateUpgrade();
       const rawHandler = getHandler(mockIrcClientInstance.on.mock.calls, 'raw');
 
-      rawHandler({ from_server: false, line: 'PONG :test' });
+      rawHandler('PONG :test', false);
       await flushPromises();
 
       expect(mockWs.send).not.toHaveBeenCalled();
@@ -268,7 +268,7 @@ describe('main.ts', () => {
       mockWs.readyState = 3; // CLOSED
 
       const rawHandler = getHandler(mockIrcClientInstance.on.mock.calls, 'raw');
-      rawHandler({ from_server: true, line: ':server PING :test' });
+      rawHandler(':server PING :test', true);
       await flushPromises();
 
       expect(mockWs.send).not.toHaveBeenCalled();
@@ -297,7 +297,7 @@ describe('main.ts', () => {
       }
       await flushPromises();
 
-      expect(mockIrcClientInstance.raw).toHaveBeenCalledTimes(50);
+      expect(mockIrcClientInstance.send).toHaveBeenCalledTimes(50);
     });
 
     it('should drop messages exceeding rate limit of 50 per window', async () => {
@@ -309,7 +309,7 @@ describe('main.ts', () => {
       }
       await flushPromises();
 
-      expect(mockIrcClientInstance.raw).toHaveBeenCalledTimes(50);
+      expect(mockIrcClientInstance.send).toHaveBeenCalledTimes(50);
     });
   });
 
@@ -330,7 +330,7 @@ describe('main.ts', () => {
       const { mockWs: ws2 } = simulateUpgrade('irc.second.com', 6667);
 
       // Fire a stale 'raw' event from the FIRST IRC client
-      client1RawHandler({ from_server: true, line: ':old PRIVMSG #leak :should not arrive' });
+      client1RawHandler(':old PRIVMSG #leak :should not arrive', true);
       await flushPromises();
 
       // The stale event should NOT appear on the new WebSocket

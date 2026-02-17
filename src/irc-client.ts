@@ -15,6 +15,9 @@ const RPL_WELCOME_PATTERN = /^(@\S+ )?:[^\s!@]+ 001 /;
 /** Maximum receive buffer size before dropping the connection (2MB) */
 const MAX_RECEIVE_BUFFER_SIZE = 2 * 1024 * 1024;
 
+/** Strip CR/LF to prevent IRC line injection */
+const stripCRLF = (input: string): string => input.replace(/[\r\n]/g, '');
+
 /**
  * Base socket connection options
  */
@@ -41,13 +44,20 @@ export interface IrcClientOptions extends SocketConnectionOptions {
  */
 export type IrcRawConnectionOptions = SocketConnectionOptions;
 
-export class Client extends EventEmitter {
+export class IrcClient extends EventEmitter {
   private socket: net.Socket | tls.TLSSocket | null = null;
   private options: SocketConnectionOptions | null = null;
   private receiveBuffer = Buffer.alloc(0);
   private encoding: BufferEncoding = 'utf8';
   private pingInterval: ReturnType<typeof setInterval> | null = null;
   private pingTimeout: ReturnType<typeof setTimeout> | null = null;
+
+  /**
+   * Check if the connection is currently active and writable
+   */
+  get connected(): boolean {
+    return this.socket?.writable ?? false;
+  }
 
   /**
    * Connect to IRC server with auto-registration (sends CAP/NICK/USER)
@@ -97,16 +107,16 @@ export class Client extends EventEmitter {
   }
 
   private onSocketConnect(): void {
-    this.emit('socket connected', {});
+    this.emit('socket connected');
 
     // Only send registration if this is a full connection (has nick)
     const fullOptions = this.options as IrcClientOptions;
     if (fullOptions?.nick) {
       // Send CAP LS 302 to initiate capability negotiation (IRCv3)
       // This must be sent before NICK/USER for proper cap negotiation
-      this.sendRaw('CAP LS 302');
-      this.sendRaw(`NICK ${fullOptions.nick}`);
-      this.sendRaw(`USER ${fullOptions.username} 0 * :${fullOptions.gecos}`);
+      this.send('CAP LS 302');
+      this.send(`NICK ${fullOptions.nick}`);
+      this.send(`USER ${fullOptions.username} 0 * :${fullOptions.gecos}`);
     }
 
     this.startPingInterval();
@@ -122,17 +132,17 @@ export class Client extends EventEmitter {
       this.receiveBuffer = this.receiveBuffer.subarray(lineEndIndex + 2);
 
       if (line.length > 0) {
-        this.emit('raw', { line, from_server: true });
+        this.emit('raw', line, true);
 
         // Handle PING automatically
         if (line.startsWith('PING ')) {
           const pingArg = line.substring(5);
-          this.sendRaw(`PONG ${pingArg}`);
+          this.send(`PONG ${pingArg}`);
         }
 
         // Emit connected on RPL_WELCOME (001)
         if (RPL_WELCOME_PATTERN.test(line)) {
-          this.emit('connected', {});
+          this.emit('connected');
         }
       }
     }
@@ -142,17 +152,16 @@ export class Client extends EventEmitter {
     }
   }
 
-  private sendRaw(line: string): void {
-    if (this.socket && !this.socket.destroyed) {
-      this.socket.write(`${line.replace(/[\r\n]/g, '')}\r\n`);
-      this.emit('raw', { line, from_server: false });
+  send(line: string): void {
+    if (this.socket?.writable) {
+      this.socket.write(`${stripCRLF(line)}\r\n`);
+      this.emit('raw', line, false);
     }
   }
 
   private onSocketClose(): void {
     this.cleanup();
-    this.emit('socket close', {});
-    this.emit('close', {});
+    this.emit('close');
   }
 
   private onSocketError(error: Error): void {
@@ -165,8 +174,8 @@ export class Client extends EventEmitter {
   private startPingInterval(): void {
     const interval = (this.options?.ping_interval ?? 30) * 1000;
     this.pingInterval = setInterval(() => {
-      if (this.socket && !this.socket.destroyed) {
-        this.sendRaw(`PING :${Date.now()}`);
+      if (this.socket?.writable) {
+        this.send(`PING :${Date.now()}`);
       }
     }, interval);
   }
@@ -198,21 +207,27 @@ export class Client extends EventEmitter {
   }
 
   quit(message?: string): void {
-    if (this.socket && !this.socket.destroyed) {
+    if (this.socket?.writable) {
       const quitMsg = message ? `QUIT :${message}` : 'QUIT';
-      this.sendRaw(quitMsg);
+      this.send(quitMsg);
       this.socket.end();
     }
     this.cleanup();
   }
 
-  raw(data: string | string[]): void {
-    let line: string;
-    if (Array.isArray(data)) {
-      line = data.join(' ');
-    } else {
-      line = data;
+  destroy(): void {
+    if (this.pingInterval) {
+      clearInterval(this.pingInterval);
+      this.pingInterval = null;
     }
-    this.sendRaw(line);
+    if (this.pingTimeout) {
+      clearTimeout(this.pingTimeout);
+      this.pingTimeout = null;
+    }
+
+    if (this.socket) {
+      this.socket.destroy();
+      this.socket = null;
+    }
   }
 }

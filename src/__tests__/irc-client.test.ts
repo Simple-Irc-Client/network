@@ -9,12 +9,14 @@ const createMockSocket = () => {
     destroy: ReturnType<typeof vi.fn>;
     setEncoding: ReturnType<typeof vi.fn>;
     destroyed: boolean;
+    writable: boolean;
   };
   socket.write = vi.fn();
   socket.end = vi.fn();
   socket.destroy = vi.fn();
   socket.setEncoding = vi.fn();
   socket.destroyed = false;
+  socket.writable = true;
   return socket;
 };
 
@@ -40,12 +42,12 @@ vi.mock('tls', () => ({
 // Mock console to avoid noise
 vi.spyOn(console, 'error').mockImplementation(() => undefined);
 
-import { Client } from '../irc-client.js';
+import { IrcClient } from '../irc-client.js';
 import type { IrcClientOptions } from '../irc-client.js';
 import * as net from 'net';
 import * as tls from 'tls';
 
-describe('Client', () => {
+describe('IrcClient', () => {
   const defaultOptions: IrcClientOptions = {
     host: 'irc.example.com',
     port: 6667,
@@ -67,7 +69,7 @@ describe('Client', () => {
 
   describe('connect', () => {
     it('should connect using net.connect for non-TLS connections', () => {
-      const client = new Client();
+      const client = new IrcClient();
       client.connect(defaultOptions);
 
       expect(net.connect).toHaveBeenCalledWith(
@@ -78,7 +80,7 @@ describe('Client', () => {
     });
 
     it('should connect using tls.connect for TLS connections', () => {
-      const client = new Client();
+      const client = new IrcClient();
       client.connect({ ...defaultOptions, tls: true });
 
       expect(tls.connect).toHaveBeenCalledWith(
@@ -88,18 +90,18 @@ describe('Client', () => {
     });
 
     it('should emit socket connected event on connect', () => {
-      const client = new Client();
+      const client = new IrcClient();
       const socketConnectedHandler = vi.fn();
       client.on('socket connected', socketConnectedHandler);
 
       client.connect(defaultOptions);
       connectCallback?.();
 
-      expect(socketConnectedHandler).toHaveBeenCalledWith({});
+      expect(socketConnectedHandler).toHaveBeenCalledWith();
     });
 
     it('should send CAP LS 302, NICK and USER commands on connect', () => {
-      const client = new Client();
+      const client = new IrcClient();
       client.connect(defaultOptions);
       connectCallback?.();
 
@@ -109,25 +111,25 @@ describe('Client', () => {
     });
 
     it('should emit raw events for sent commands', () => {
-      const client = new Client();
+      const client = new IrcClient();
       const rawHandler = vi.fn();
       client.on('raw', rawHandler);
 
       client.connect(defaultOptions);
       connectCallback?.();
 
-      expect(rawHandler).toHaveBeenCalledWith({ line: 'CAP LS 302', from_server: false });
-      expect(rawHandler).toHaveBeenCalledWith({ line: 'NICK testuser', from_server: false });
-      expect(rawHandler).toHaveBeenCalledWith({
-        line: 'USER testuser 0 * :Test User',
-        from_server: false,
-      });
+      expect(rawHandler).toHaveBeenCalledWith('CAP LS 302', false);
+      expect(rawHandler).toHaveBeenCalledWith('NICK testuser', false);
+      expect(rawHandler).toHaveBeenCalledWith(
+        'USER testuser 0 * :Test User',
+        false,
+      );
     });
   });
 
   describe('data handling', () => {
     it('should emit raw events for received data', () => {
-      const client = new Client();
+      const client = new IrcClient();
       const rawHandler = vi.fn();
       client.on('raw', rawHandler);
 
@@ -137,14 +139,14 @@ describe('Client', () => {
 
       mockSocket.emit('data', Buffer.from(':server.test NOTICE * :Welcome\r\n'));
 
-      expect(rawHandler).toHaveBeenCalledWith({
-        line: ':server.test NOTICE * :Welcome',
-        from_server: true,
-      });
+      expect(rawHandler).toHaveBeenCalledWith(
+        ':server.test NOTICE * :Welcome',
+        true,
+      );
     });
 
     it('should handle multiple lines in one data chunk', () => {
-      const client = new Client();
+      const client = new IrcClient();
       const rawHandler = vi.fn();
       client.on('raw', rawHandler);
 
@@ -155,18 +157,18 @@ describe('Client', () => {
       mockSocket.emit('data', Buffer.from(':server NOTICE * :Line1\r\n:server NOTICE * :Line2\r\n'));
 
       expect(rawHandler).toHaveBeenCalledTimes(2);
-      expect(rawHandler).toHaveBeenCalledWith({
-        line: ':server NOTICE * :Line1',
-        from_server: true,
-      });
-      expect(rawHandler).toHaveBeenCalledWith({
-        line: ':server NOTICE * :Line2',
-        from_server: true,
-      });
+      expect(rawHandler).toHaveBeenCalledWith(
+        ':server NOTICE * :Line1',
+        true,
+      );
+      expect(rawHandler).toHaveBeenCalledWith(
+        ':server NOTICE * :Line2',
+        true,
+      );
     });
 
     it('should buffer incomplete lines', () => {
-      const client = new Client();
+      const client = new IrcClient();
       const rawHandler = vi.fn();
       client.on('raw', rawHandler);
 
@@ -180,14 +182,14 @@ describe('Client', () => {
 
       // Complete the line
       mockSocket.emit('data', Buffer.from('ial message\r\n'));
-      expect(rawHandler).toHaveBeenCalledWith({
-        line: ':server NOTICE * :Partial message',
-        from_server: true,
-      });
+      expect(rawHandler).toHaveBeenCalledWith(
+        ':server NOTICE * :Partial message',
+        true,
+      );
     });
 
     it('should respond to PING with PONG', () => {
-      const client = new Client();
+      const client = new IrcClient();
       client.connect(defaultOptions);
       connectCallback?.();
       mockSocket.write.mockClear();
@@ -198,7 +200,7 @@ describe('Client', () => {
     });
 
     it('should emit connected event on RPL_WELCOME (001)', () => {
-      const client = new Client();
+      const client = new IrcClient();
       const connectedHandler = vi.fn();
       client.on('connected', connectedHandler);
 
@@ -207,11 +209,11 @@ describe('Client', () => {
 
       mockSocket.emit('data', Buffer.from(':server 001 testuser :Welcome to the IRC Network\r\n'));
 
-      expect(connectedHandler).toHaveBeenCalledWith({});
+      expect(connectedHandler).toHaveBeenCalledWith();
     });
 
     it('should emit connected event on IRCv3 tagged RPL_WELCOME (001)', () => {
-      const client = new Client();
+      const client = new IrcClient();
       const connectedHandler = vi.fn();
       client.on('connected', connectedHandler);
 
@@ -223,11 +225,11 @@ describe('Client', () => {
         Buffer.from('@time=2024-01-01T00:00:00Z :server 001 nick :Welcome\r\n')
       );
 
-      expect(connectedHandler).toHaveBeenCalledWith({});
+      expect(connectedHandler).toHaveBeenCalledWith();
     });
 
     it('should not emit connected on user message containing 001', () => {
-      const client = new Client();
+      const client = new IrcClient();
       const connectedHandler = vi.fn();
       client.on('connected', connectedHandler);
 
@@ -243,7 +245,7 @@ describe('Client', () => {
     });
 
     it('should destroy socket on buffer overflow', () => {
-      const client = new Client();
+      const client = new IrcClient();
       client.connect(defaultOptions);
       connectCallback?.();
 
@@ -261,7 +263,7 @@ describe('Client', () => {
     });
 
     it('should ignore empty lines', () => {
-      const client = new Client();
+      const client = new IrcClient();
       const rawHandler = vi.fn();
       client.on('raw', rawHandler);
 
@@ -272,16 +274,16 @@ describe('Client', () => {
       mockSocket.emit('data', Buffer.from('\r\n\r\n:server NOTICE * :Hello\r\n\r\n'));
 
       expect(rawHandler).toHaveBeenCalledTimes(1);
-      expect(rawHandler).toHaveBeenCalledWith({
-        line: ':server NOTICE * :Hello',
-        from_server: true,
-      });
+      expect(rawHandler).toHaveBeenCalledWith(
+        ':server NOTICE * :Hello',
+        true,
+      );
     });
   });
 
   describe('ping/pong mechanism', () => {
     it('should send PING at configured interval', () => {
-      const client = new Client();
+      const client = new IrcClient();
       client.connect({ ...defaultOptions, ping_interval: 60 });
       connectCallback?.();
       mockSocket.write.mockClear();
@@ -292,7 +294,7 @@ describe('Client', () => {
     });
 
     it('should use default 30 second ping interval', () => {
-      const client = new Client();
+      const client = new IrcClient();
       client.connect(defaultOptions);
       connectCallback?.();
       mockSocket.write.mockClear();
@@ -303,7 +305,7 @@ describe('Client', () => {
     });
 
     it('should destroy socket on ping timeout', () => {
-      const client = new Client();
+      const client = new IrcClient();
       client.connect({ ...defaultOptions, ping_timeout: 60 });
       connectCallback?.();
 
@@ -316,7 +318,7 @@ describe('Client', () => {
     });
 
     it('should use default 120 second ping timeout', () => {
-      const client = new Client();
+      const client = new IrcClient();
       client.connect(defaultOptions);
       connectCallback?.();
 
@@ -331,7 +333,7 @@ describe('Client', () => {
     });
 
     it('should reset ping timeout on receiving data', () => {
-      const client = new Client();
+      const client = new IrcClient();
       client.connect({ ...defaultOptions, ping_timeout: 60 });
       connectCallback?.();
 
@@ -354,23 +356,20 @@ describe('Client', () => {
 
   describe('socket events', () => {
     it('should emit close event on socket close', () => {
-      const client = new Client();
+      const client = new IrcClient();
       const closeHandler = vi.fn();
-      const socketCloseHandler = vi.fn();
       client.on('close', closeHandler);
-      client.on('socket close', socketCloseHandler);
 
       client.connect(defaultOptions);
       connectCallback?.();
 
       mockSocket.emit('close');
 
-      expect(closeHandler).toHaveBeenCalledWith({});
-      expect(socketCloseHandler).toHaveBeenCalledWith({});
+      expect(closeHandler).toHaveBeenCalledWith();
     });
 
     it('should cleanup timers on socket close', () => {
-      const client = new Client();
+      const client = new IrcClient();
       client.connect(defaultOptions);
       connectCallback?.();
 
@@ -385,7 +384,7 @@ describe('Client', () => {
     });
 
     it('should log error and emit error event on socket error', () => {
-      const client = new Client();
+      const client = new IrcClient();
       const errorHandler = vi.fn();
       client.on('error', errorHandler);
       client.connect(defaultOptions);
@@ -401,7 +400,7 @@ describe('Client', () => {
 
   describe('quit', () => {
     it('should send QUIT with message and end socket', () => {
-      const client = new Client();
+      const client = new IrcClient();
       client.connect(defaultOptions);
       connectCallback?.();
       mockSocket.write.mockClear();
@@ -413,7 +412,7 @@ describe('Client', () => {
     });
 
     it('should send QUIT without message when not provided', () => {
-      const client = new Client();
+      const client = new IrcClient();
       client.connect(defaultOptions);
       connectCallback?.();
       mockSocket.write.mockClear();
@@ -424,11 +423,11 @@ describe('Client', () => {
       expect(mockSocket.end).toHaveBeenCalled();
     });
 
-    it('should not send QUIT if socket is destroyed', () => {
-      const client = new Client();
+    it('should not send QUIT if socket is not writable', () => {
+      const client = new IrcClient();
       client.connect(defaultOptions);
       connectCallback?.();
-      mockSocket.destroyed = true;
+      mockSocket.writable = false;
       mockSocket.write.mockClear();
 
       client.quit('Goodbye');
@@ -438,7 +437,7 @@ describe('Client', () => {
     });
 
     it('should cleanup timers on quit', () => {
-      const client = new Client();
+      const client = new IrcClient();
       client.connect(defaultOptions);
       connectCallback?.();
 
@@ -452,37 +451,26 @@ describe('Client', () => {
     });
 
     it('should be safe to call quit before connect', () => {
-      const client = new Client();
+      const client = new IrcClient();
 
       expect(() => client.quit()).not.toThrow();
     });
   });
 
-  describe('raw', () => {
-    it('should send string data as-is', () => {
-      const client = new Client();
+  describe('send', () => {
+    it('should send string data', () => {
+      const client = new IrcClient();
       client.connect(defaultOptions);
       connectCallback?.();
       mockSocket.write.mockClear();
 
-      client.raw('PRIVMSG #channel :Hello world');
-
-      expect(mockSocket.write).toHaveBeenCalledWith('PRIVMSG #channel :Hello world\r\n');
-    });
-
-    it('should join array data with spaces', () => {
-      const client = new Client();
-      client.connect(defaultOptions);
-      connectCallback?.();
-      mockSocket.write.mockClear();
-
-      client.raw(['PRIVMSG', '#channel', ':Hello world']);
+      client.send('PRIVMSG #channel :Hello world');
 
       expect(mockSocket.write).toHaveBeenCalledWith('PRIVMSG #channel :Hello world\r\n');
     });
 
     it('should emit raw event for sent data', () => {
-      const client = new Client();
+      const client = new IrcClient();
       const rawHandler = vi.fn();
       client.on('raw', rawHandler);
 
@@ -490,37 +478,91 @@ describe('Client', () => {
       connectCallback?.();
       rawHandler.mockClear();
 
-      client.raw('JOIN #test');
+      client.send('JOIN #test');
 
-      expect(rawHandler).toHaveBeenCalledWith({ line: 'JOIN #test', from_server: false });
+      expect(rawHandler).toHaveBeenCalledWith('JOIN #test', false);
     });
 
-    it('should not send if socket is destroyed', () => {
-      const client = new Client();
+    it('should not send if socket is not writable', () => {
+      const client = new IrcClient();
       client.connect(defaultOptions);
       connectCallback?.();
-      mockSocket.destroyed = true;
+      mockSocket.writable = false;
       mockSocket.write.mockClear();
 
-      client.raw('TEST');
+      client.send('TEST');
 
       expect(mockSocket.write).not.toHaveBeenCalled();
     });
 
     it('should not send if not connected', () => {
-      const client = new Client();
+      const client = new IrcClient();
       const rawHandler = vi.fn();
       client.on('raw', rawHandler);
 
-      client.raw('TEST');
+      client.send('TEST');
 
       expect(rawHandler).not.toHaveBeenCalled();
     });
   });
 
+  describe('connected getter', () => {
+    it('should return false before connect', () => {
+      const client = new IrcClient();
+      expect(client.connected).toBe(false);
+    });
+
+    it('should return true when socket is writable', () => {
+      const client = new IrcClient();
+      client.connect(defaultOptions);
+      connectCallback?.();
+
+      expect(client.connected).toBe(true);
+    });
+
+    it('should return false when socket is not writable', () => {
+      const client = new IrcClient();
+      client.connect(defaultOptions);
+      connectCallback?.();
+      mockSocket.writable = false;
+
+      expect(client.connected).toBe(false);
+    });
+  });
+
+  describe('destroy', () => {
+    it('should destroy the socket', () => {
+      const client = new IrcClient();
+      client.connect(defaultOptions);
+      connectCallback?.();
+
+      client.destroy();
+
+      expect(mockSocket.destroy).toHaveBeenCalled();
+    });
+
+    it('should cleanup timers', () => {
+      const client = new IrcClient();
+      client.connect(defaultOptions);
+      connectCallback?.();
+
+      client.destroy();
+
+      mockSocket.write.mockClear();
+      vi.advanceTimersByTime(200000);
+
+      expect(mockSocket.write).not.toHaveBeenCalled();
+    });
+
+    it('should be safe to call before connect', () => {
+      const client = new IrcClient();
+      expect(() => client.destroy()).not.toThrow();
+    });
+  });
+
   describe('buffer clearing on reconnect', () => {
     it('should clear buffer when connecting', () => {
-      const client = new Client();
+      const client = new IrcClient();
       const rawHandler = vi.fn();
       client.on('raw', rawHandler);
 
@@ -539,13 +581,14 @@ describe('Client', () => {
       // New complete message should work
       mockSocket.emit('data', Buffer.from(':server NOTICE * :New message\r\n'));
 
-      expect(rawHandler).toHaveBeenCalledWith({
-        line: ':server NOTICE * :New message',
-        from_server: true,
-      });
+      expect(rawHandler).toHaveBeenCalledWith(
+        ':server NOTICE * :New message',
+        true,
+      );
       // Should NOT contain the old incomplete data
       expect(rawHandler).not.toHaveBeenCalledWith(
-        expect.objectContaining({ line: expect.stringContaining('Incomplete') })
+        expect.stringContaining('Incomplete'),
+        expect.anything(),
       );
     });
   });
