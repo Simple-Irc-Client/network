@@ -3,6 +3,19 @@ import * as net from 'net';
 import * as tls from 'tls';
 
 /**
+ * Pattern to match RPL_WELCOME (001) from a server
+ *
+ * - Optional IRCv3 message tags (@key=value;... ) at the start
+ * - Server prefix starting with :
+ * - Source must not contain ! or @ (those indicate a user hostmask)
+ * - Command must be exactly 001
+ */
+const RPL_WELCOME_PATTERN = /^(@\S+ )?:[^\s!@]+ 001 /;
+
+/** Maximum receive buffer size before dropping the connection (2MB) */
+const MAX_RECEIVE_BUFFER_SIZE = 2 * 1024 * 1024;
+
+/**
  * Base socket connection options
  */
 interface SocketConnectionOptions {
@@ -31,7 +44,8 @@ export type IrcRawConnectionOptions = SocketConnectionOptions;
 export class Client extends EventEmitter {
   private socket: net.Socket | tls.TLSSocket | null = null;
   private options: SocketConnectionOptions | null = null;
-  private buffer = '';
+  private receiveBuffer = Buffer.alloc(0);
+  private encoding: BufferEncoding = 'utf8';
   private pingInterval: ReturnType<typeof setInterval> | null = null;
   private pingTimeout: ReturnType<typeof setTimeout> | null = null;
 
@@ -40,12 +54,13 @@ export class Client extends EventEmitter {
    */
   connect(options: IrcClientOptions): void {
     this.options = options;
-    this.buffer = '';
+    this.encoding = options.encoding ?? 'utf8';
+    this.receiveBuffer = Buffer.alloc(0);
 
     this.createSocket(options);
 
     if (this.socket) {
-      this.socket.on('data', (data: string) => this.onData(data));
+      this.socket.on('data', (data: Buffer) => this.onData(data));
       this.socket.on('close', () => this.onSocketClose());
       this.socket.on('error', (error: Error) => this.onSocketError(error));
     }
@@ -56,12 +71,13 @@ export class Client extends EventEmitter {
    */
   connectRaw(options: IrcRawConnectionOptions): void {
     this.options = options;
-    this.buffer = '';
+    this.encoding = options.encoding ?? 'utf8';
+    this.receiveBuffer = Buffer.alloc(0);
 
     this.createSocket(options);
 
     if (this.socket) {
-      this.socket.on('data', (data: string) => this.onData(data));
+      this.socket.on('data', (data: Buffer) => this.onData(data));
       this.socket.on('close', () => this.onSocketClose());
       this.socket.on('error', (error: Error) => this.onSocketError(error));
     }
@@ -78,8 +94,6 @@ export class Client extends EventEmitter {
     } else {
       this.socket = net.connect(connectOptions, () => this.onSocketConnect());
     }
-
-    this.socket.setEncoding(options.encoding ?? 'utf8');
   }
 
   private onSocketConnect(): void {
@@ -98,14 +112,15 @@ export class Client extends EventEmitter {
     this.startPingInterval();
   }
 
-  private onData(data: string): void {
+  private onData(data: Buffer): void {
     this.resetPingTimeout();
-    this.buffer += data;
+    this.receiveBuffer = Buffer.concat([this.receiveBuffer, data]);
 
-    const lines = this.buffer.split('\r\n');
-    this.buffer = lines.pop() ?? '';
+    let lineEndIndex: number;
+    while ((lineEndIndex = this.receiveBuffer.indexOf('\r\n')) !== -1) {
+      const line = this.receiveBuffer.subarray(0, lineEndIndex).toString(this.encoding);
+      this.receiveBuffer = this.receiveBuffer.subarray(lineEndIndex + 2);
 
-    for (const line of lines) {
       if (line.length > 0) {
         this.emit('raw', { line, from_server: true });
 
@@ -116,10 +131,14 @@ export class Client extends EventEmitter {
         }
 
         // Emit connected on RPL_WELCOME (001)
-        if (line.includes(' 001 ')) {
+        if (RPL_WELCOME_PATTERN.test(line)) {
           this.emit('connected', {});
         }
       }
+    }
+
+    if (this.receiveBuffer.length > MAX_RECEIVE_BUFFER_SIZE) {
+      this.socket?.destroy(new Error('Receive buffer overflow'));
     }
   }
 

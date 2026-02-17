@@ -87,20 +87,6 @@ describe('Client', () => {
       );
     });
 
-    it('should set encoding to utf8 by default', () => {
-      const client = new Client();
-      client.connect(defaultOptions);
-
-      expect(mockSocket.setEncoding).toHaveBeenCalledWith('utf8');
-    });
-
-    it('should use custom encoding when specified', () => {
-      const client = new Client();
-      client.connect({ ...defaultOptions, encoding: 'latin1' });
-
-      expect(mockSocket.setEncoding).toHaveBeenCalledWith('latin1');
-    });
-
     it('should emit socket connected event on connect', () => {
       const client = new Client();
       const socketConnectedHandler = vi.fn();
@@ -149,7 +135,7 @@ describe('Client', () => {
       connectCallback?.();
       rawHandler.mockClear();
 
-      mockSocket.emit('data', ':server.test NOTICE * :Welcome\r\n');
+      mockSocket.emit('data', Buffer.from(':server.test NOTICE * :Welcome\r\n'));
 
       expect(rawHandler).toHaveBeenCalledWith({
         line: ':server.test NOTICE * :Welcome',
@@ -166,7 +152,7 @@ describe('Client', () => {
       connectCallback?.();
       rawHandler.mockClear();
 
-      mockSocket.emit('data', ':server NOTICE * :Line1\r\n:server NOTICE * :Line2\r\n');
+      mockSocket.emit('data', Buffer.from(':server NOTICE * :Line1\r\n:server NOTICE * :Line2\r\n'));
 
       expect(rawHandler).toHaveBeenCalledTimes(2);
       expect(rawHandler).toHaveBeenCalledWith({
@@ -189,11 +175,11 @@ describe('Client', () => {
       rawHandler.mockClear();
 
       // Send partial data
-      mockSocket.emit('data', ':server NOTICE * :Part');
+      mockSocket.emit('data', Buffer.from(':server NOTICE * :Part'));
       expect(rawHandler).not.toHaveBeenCalled();
 
       // Complete the line
-      mockSocket.emit('data', 'ial message\r\n');
+      mockSocket.emit('data', Buffer.from('ial message\r\n'));
       expect(rawHandler).toHaveBeenCalledWith({
         line: ':server NOTICE * :Partial message',
         from_server: true,
@@ -206,7 +192,7 @@ describe('Client', () => {
       connectCallback?.();
       mockSocket.write.mockClear();
 
-      mockSocket.emit('data', 'PING :server.test\r\n');
+      mockSocket.emit('data', Buffer.from('PING :server.test\r\n'));
 
       expect(mockSocket.write).toHaveBeenCalledWith('PONG :server.test\r\n');
     });
@@ -219,9 +205,59 @@ describe('Client', () => {
       client.connect(defaultOptions);
       connectCallback?.();
 
-      mockSocket.emit('data', ':server 001 testuser :Welcome to the IRC Network\r\n');
+      mockSocket.emit('data', Buffer.from(':server 001 testuser :Welcome to the IRC Network\r\n'));
 
       expect(connectedHandler).toHaveBeenCalledWith({});
+    });
+
+    it('should emit connected event on IRCv3 tagged RPL_WELCOME (001)', () => {
+      const client = new Client();
+      const connectedHandler = vi.fn();
+      client.on('connected', connectedHandler);
+
+      client.connect(defaultOptions);
+      connectCallback?.();
+
+      mockSocket.emit(
+        'data',
+        Buffer.from('@time=2024-01-01T00:00:00Z :server 001 nick :Welcome\r\n')
+      );
+
+      expect(connectedHandler).toHaveBeenCalledWith({});
+    });
+
+    it('should not emit connected on user message containing 001', () => {
+      const client = new Client();
+      const connectedHandler = vi.fn();
+      client.on('connected', connectedHandler);
+
+      client.connect(defaultOptions);
+      connectCallback?.();
+
+      mockSocket.emit(
+        'data',
+        Buffer.from(':nick!user@host PRIVMSG #ch :error 001 happened\r\n')
+      );
+
+      expect(connectedHandler).not.toHaveBeenCalled();
+    });
+
+    it('should destroy socket on buffer overflow', () => {
+      const client = new Client();
+      client.connect(defaultOptions);
+      connectCallback?.();
+
+      // Send >2MB without \r\n terminators
+      const chunk = Buffer.alloc(1024 * 1024, 0x41); // 1MB of 'A'
+      mockSocket.emit('data', chunk);
+      expect(mockSocket.destroy).not.toHaveBeenCalled();
+
+      mockSocket.emit('data', chunk);
+      expect(mockSocket.destroy).not.toHaveBeenCalled();
+
+      // One more byte pushes over 2MB
+      mockSocket.emit('data', Buffer.from('A'));
+      expect(mockSocket.destroy).toHaveBeenCalled();
     });
 
     it('should ignore empty lines', () => {
@@ -233,7 +269,7 @@ describe('Client', () => {
       connectCallback?.();
       rawHandler.mockClear();
 
-      mockSocket.emit('data', '\r\n\r\n:server NOTICE * :Hello\r\n\r\n');
+      mockSocket.emit('data', Buffer.from('\r\n\r\n:server NOTICE * :Hello\r\n\r\n'));
 
       expect(rawHandler).toHaveBeenCalledTimes(1);
       expect(rawHandler).toHaveBeenCalledWith({
@@ -272,7 +308,7 @@ describe('Client', () => {
       connectCallback?.();
 
       // Ping timeout starts on first data received
-      mockSocket.emit('data', ':server NOTICE * :test\r\n');
+      mockSocket.emit('data', Buffer.from(':server NOTICE * :test\r\n'));
 
       vi.advanceTimersByTime(60000);
 
@@ -285,7 +321,7 @@ describe('Client', () => {
       connectCallback?.();
 
       // Ping timeout starts on first data received
-      mockSocket.emit('data', ':server NOTICE * :test\r\n');
+      mockSocket.emit('data', Buffer.from(':server NOTICE * :test\r\n'));
 
       vi.advanceTimersByTime(119000);
       expect(mockSocket.destroy).not.toHaveBeenCalled();
@@ -304,7 +340,7 @@ describe('Client', () => {
       expect(mockSocket.destroy).not.toHaveBeenCalled();
 
       // Receive data - should reset timeout
-      mockSocket.emit('data', ':server NOTICE * :test\r\n');
+      mockSocket.emit('data', Buffer.from(':server NOTICE * :test\r\n'));
 
       // Wait another 50 seconds
       vi.advanceTimersByTime(50000);
@@ -492,7 +528,7 @@ describe('Client', () => {
       client.connect(defaultOptions);
       connectCallback?.();
       rawHandler.mockClear();
-      mockSocket.emit('data', ':server NOTICE * :Incomplete');
+      mockSocket.emit('data', Buffer.from(':server NOTICE * :Incomplete'));
 
       // Reconnect - buffer should be cleared
       mockSocket = createMockSocket();
@@ -501,7 +537,7 @@ describe('Client', () => {
       rawHandler.mockClear();
 
       // New complete message should work
-      mockSocket.emit('data', ':server NOTICE * :New message\r\n');
+      mockSocket.emit('data', Buffer.from(':server NOTICE * :New message\r\n'));
 
       expect(rawHandler).toHaveBeenCalledWith({
         line: ':server NOTICE * :New message',
