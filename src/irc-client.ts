@@ -12,8 +12,20 @@ import * as tls from 'tls';
  */
 const RPL_WELCOME_PATTERN = /^(@\S+ )?:[^\s!@]+ 001 /;
 
+/** IRC line terminator */
+const IRC_LINE_ENDING = '\r\n';
+
 /** Maximum receive buffer size before dropping the connection (2MB) */
 const MAX_RECEIVE_BUFFER_SIZE = 2 * 1024 * 1024;
+
+/** Interval for sending PING keepalive messages (30 seconds) */
+const PING_INTERVAL_MS = 30000;
+
+/** Timeout for TCP/TLS connection establishment (30 seconds) */
+const CONNECTION_TIMEOUT_MS = 30000;
+
+/** Default timeout for receiving server response after sending PING (120 seconds) */
+const DEFAULT_PONG_TIMEOUT_MS = 120000;
 
 /** Strip CR/LF to prevent IRC line injection */
 const stripCRLF = (input: string): string => input.replace(/[\r\n]/g, '');
@@ -26,8 +38,8 @@ interface SocketConnectionOptions {
   port: number;
   encoding?: BufferEncoding;
   tls?: boolean;
-  ping_interval?: number;
-  ping_timeout?: number;
+  /** Timeout in seconds for server to respond after PING (default: 120) */
+  pongTimeout?: number;
 }
 
 /**
@@ -49,8 +61,9 @@ export class IrcClient extends EventEmitter {
   private options: SocketConnectionOptions | null = null;
   private receiveBuffer = Buffer.alloc(0);
   private encoding: BufferEncoding = 'utf8';
-  private pingInterval: ReturnType<typeof setInterval> | null = null;
-  private pingTimeout: ReturnType<typeof setTimeout> | null = null;
+  private pingIntervalTimer: ReturnType<typeof setInterval> | null = null;
+  private pongTimeoutTimer: ReturnType<typeof setTimeout> | null = null;
+  private pongTimeoutMs = DEFAULT_PONG_TIMEOUT_MS;
 
   /**
    * Check if the connection is currently active and writable
@@ -63,50 +76,81 @@ export class IrcClient extends EventEmitter {
    * Connect to IRC server with auto-registration (sends CAP/NICK/USER)
    */
   connect(options: IrcClientOptions): void {
+    // Clean up any existing connection
+    this.destroy();
+
     this.options = options;
     this.encoding = options.encoding ?? 'utf8';
     this.receiveBuffer = Buffer.alloc(0);
+    this.pongTimeoutMs = (options.pongTimeout ?? 120) * 1000;
 
-    this.createSocket(options);
+    const socket = this.createSocket(options);
+    this.socket = socket;
 
-    if (this.socket) {
-      this.socket.on('data', (data: Buffer) => this.onData(data));
-      this.socket.on('close', () => this.onSocketClose());
-      this.socket.on('error', (error: Error) => this.onSocketError(error));
-    }
+    socket.once('connect', () => {
+      this.handleSocketConnected();
+    });
+
+    socket.on('data', (data: Buffer) => this.handleIncomingData(data));
+    socket.on('close', () => this.handleSocketClosed());
+    socket.on('error', (error: Error) => this.emit('error', error));
   }
 
   /**
    * Connect to IRC server in raw mode (client handles registration)
    */
   connectRaw(options: IrcRawConnectionOptions): void {
+    // Clean up any existing connection
+    this.destroy();
+
     this.options = options;
     this.encoding = options.encoding ?? 'utf8';
     this.receiveBuffer = Buffer.alloc(0);
+    this.pongTimeoutMs = (options.pongTimeout ?? 120) * 1000;
 
-    this.createSocket(options);
+    const socket = this.createSocket(options);
+    this.socket = socket;
 
-    if (this.socket) {
-      this.socket.on('data', (data: Buffer) => this.onData(data));
-      this.socket.on('close', () => this.onSocketClose());
-      this.socket.on('error', (error: Error) => this.onSocketError(error));
-    }
+    socket.once('connect', () => {
+      this.handleRawSocketConnected();
+    });
+
+    socket.on('data', (data: Buffer) => this.handleIncomingData(data));
+    socket.on('close', () => this.handleSocketClosed());
+    socket.on('error', (error: Error) => this.emit('error', error));
   }
 
-  private createSocket(options: SocketConnectionOptions): void {
+  private createSocket(options: SocketConnectionOptions): net.Socket | tls.TLSSocket {
     const connectOptions = {
       host: options.host,
       port: options.port,
     };
 
+    let socket: net.Socket | tls.TLSSocket;
+
     if (options.tls) {
-      this.socket = tls.connect(connectOptions, () => this.onSocketConnect());
+      socket = tls.connect({
+        ...connectOptions,
+        rejectUnauthorized: true,
+      });
     } else {
-      this.socket = net.connect(connectOptions, () => this.onSocketConnect());
+      socket = net.connect(connectOptions);
     }
+
+    // Connection establishment timeout — destroy socket if handshake
+    // doesn't complete within the allowed time
+    socket.setTimeout(CONNECTION_TIMEOUT_MS);
+    socket.once('timeout', () => {
+      socket.destroy(new Error('Connection timed out'));
+    });
+
+    return socket;
   }
 
-  private onSocketConnect(): void {
+  private handleSocketConnected(): void {
+    // Handshake succeeded — disable the connection establishment timeout
+    this.socket?.setTimeout(0);
+
     this.emit('socket connected');
 
     // Only send registration if this is a full connection (has nick)
@@ -119,31 +163,28 @@ export class IrcClient extends EventEmitter {
       this.send(`USER ${fullOptions.username} 0 * :${fullOptions.gecos}`);
     }
 
-    this.startPingInterval();
+    this.startPingTimer();
   }
 
-  private onData(data: Buffer): void {
-    this.resetPingTimeout();
+  private handleRawSocketConnected(): void {
+    // Handshake succeeded — disable the connection establishment timeout
+    this.socket?.setTimeout(0);
+
+    this.emit('socket connected');
+
+    this.startPingTimer();
+  }
+
+  private handleIncomingData(data: Buffer): void {
     this.receiveBuffer = Buffer.concat([this.receiveBuffer, data]);
 
     let lineEndIndex: number;
-    while ((lineEndIndex = this.receiveBuffer.indexOf('\r\n')) !== -1) {
+    while ((lineEndIndex = this.receiveBuffer.indexOf(IRC_LINE_ENDING)) !== -1) {
       const line = this.receiveBuffer.subarray(0, lineEndIndex).toString(this.encoding);
       this.receiveBuffer = this.receiveBuffer.subarray(lineEndIndex + 2);
 
       if (line.length > 0) {
-        this.emit('raw', line, true);
-
-        // Handle PING automatically
-        if (line.startsWith('PING ')) {
-          const pingArg = line.substring(5);
-          this.send(`PONG ${pingArg}`);
-        }
-
-        // Emit connected on RPL_WELCOME (001)
-        if (RPL_WELCOME_PATTERN.test(line)) {
-          this.emit('connected');
-        }
+        this.handleIrcLine(line);
       }
     }
 
@@ -152,58 +193,62 @@ export class IrcClient extends EventEmitter {
     }
   }
 
+  private handleIrcLine(line: string): void {
+    // Any data from server proves it's alive — clear the PONG timeout
+    this.clearPongTimeout();
+
+    this.emit('raw', line, true);
+
+    // Handle PING automatically
+    if (line.startsWith('PING ')) {
+      const pingArg = line.substring(5);
+      this.send(`PONG ${pingArg}`);
+    }
+
+    // Emit connected on RPL_WELCOME (001)
+    if (RPL_WELCOME_PATTERN.test(line)) {
+      this.emit('connected');
+    }
+  }
+
   send(line: string): void {
     if (this.socket?.writable) {
-      this.socket.write(`${stripCRLF(line)}\r\n`);
+      this.socket.write(`${stripCRLF(line)}${IRC_LINE_ENDING}`);
       this.emit('raw', line, false);
     }
   }
 
-  private onSocketClose(): void {
-    this.cleanup();
+  private handleSocketClosed(): void {
+    this.stopPingTimer();
     this.emit('close');
   }
 
-  private onSocketError(error: Error): void {
-    if (process.env.NODE_ENV !== 'production') {
-      console.error(`IRC socket error: ${error.message}`);
-    }
-    this.emit('error', error);
+  private startPingTimer(): void {
+    this.pingIntervalTimer = setInterval(() => {
+      this.send(`PING :${Date.now()}`);
+
+      // Start a PONG timeout — if the server doesn't send anything
+      // before this fires, consider the connection dead
+      this.clearPongTimeout();
+      this.pongTimeoutTimer = setTimeout(() => {
+        this.socket?.destroy(new Error('PONG timeout: server unresponsive'));
+      }, this.pongTimeoutMs);
+    }, PING_INTERVAL_MS);
   }
 
-  private startPingInterval(): void {
-    const interval = (this.options?.ping_interval ?? 30) * 1000;
-    this.pingInterval = setInterval(() => {
-      if (this.socket?.writable) {
-        this.send(`PING :${Date.now()}`);
-      }
-    }, interval);
+  private clearPongTimeout(): void {
+    if (this.pongTimeoutTimer) {
+      clearTimeout(this.pongTimeoutTimer);
+      this.pongTimeoutTimer = null;
+    }
   }
 
-  private resetPingTimeout(): void {
-    if (this.pingTimeout) {
-      clearTimeout(this.pingTimeout);
+  private stopPingTimer(): void {
+    if (this.pingIntervalTimer) {
+      clearInterval(this.pingIntervalTimer);
+      this.pingIntervalTimer = null;
     }
-
-    const timeout = (this.options?.ping_timeout ?? 120) * 1000;
-    this.pingTimeout = setTimeout(() => {
-      if (process.env.NODE_ENV !== 'production') {
-        console.error('IRC ping timeout - disconnecting');
-      }
-      this.socket?.destroy();
-    }, timeout);
-  }
-
-  private cleanup(): void {
-    if (this.pingInterval) {
-      clearInterval(this.pingInterval);
-      this.pingInterval = null;
-    }
-    if (this.pingTimeout) {
-      clearTimeout(this.pingTimeout);
-      this.pingTimeout = null;
-    }
-    this.socket = null;
+    this.clearPongTimeout();
   }
 
   quit(message?: string): void {
@@ -212,18 +257,11 @@ export class IrcClient extends EventEmitter {
       this.send(quitMsg);
       this.socket.end();
     }
-    this.cleanup();
+    this.stopPingTimer();
   }
 
   destroy(): void {
-    if (this.pingInterval) {
-      clearInterval(this.pingInterval);
-      this.pingInterval = null;
-    }
-    if (this.pingTimeout) {
-      clearTimeout(this.pingTimeout);
-      this.pingTimeout = null;
-    }
+    this.stopPingTimer();
 
     if (this.socket) {
       this.socket.destroy();

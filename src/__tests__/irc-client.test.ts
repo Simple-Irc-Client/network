@@ -8,6 +8,7 @@ const createMockSocket = () => {
     end: ReturnType<typeof vi.fn>;
     destroy: ReturnType<typeof vi.fn>;
     setEncoding: ReturnType<typeof vi.fn>;
+    setTimeout: ReturnType<typeof vi.fn>;
     destroyed: boolean;
     writable: boolean;
   };
@@ -15,26 +16,24 @@ const createMockSocket = () => {
   socket.end = vi.fn();
   socket.destroy = vi.fn();
   socket.setEncoding = vi.fn();
+  socket.setTimeout = vi.fn();
   socket.destroyed = false;
   socket.writable = true;
   return socket;
 };
 
 let mockSocket: ReturnType<typeof createMockSocket>;
-let connectCallback: (() => void) | null = null;
 
 // Mock net module
 vi.mock('net', () => ({
-  connect: vi.fn((options: unknown, callback: () => void) => {
-    connectCallback = callback;
+  connect: vi.fn(() => {
     return mockSocket;
   }),
 }));
 
 // Mock tls module
 vi.mock('tls', () => ({
-  connect: vi.fn((options: unknown, callback: () => void) => {
-    connectCallback = callback;
+  connect: vi.fn(() => {
     return mockSocket;
   }),
 }));
@@ -60,7 +59,6 @@ describe('IrcClient', () => {
     vi.clearAllMocks();
     vi.useFakeTimers();
     mockSocket = createMockSocket();
-    connectCallback = null;
   });
 
   afterEach(() => {
@@ -73,19 +71,17 @@ describe('IrcClient', () => {
       client.connect(defaultOptions);
 
       expect(net.connect).toHaveBeenCalledWith(
-        { host: 'irc.example.com', port: 6667 },
-        expect.any(Function)
+        { host: 'irc.example.com', port: 6667 }
       );
       expect(tls.connect).not.toHaveBeenCalled();
     });
 
-    it('should connect using tls.connect for TLS connections', () => {
+    it('should connect using tls.connect for TLS connections with rejectUnauthorized', () => {
       const client = new IrcClient();
       client.connect({ ...defaultOptions, tls: true });
 
       expect(tls.connect).toHaveBeenCalledWith(
-        { host: 'irc.example.com', port: 6667 },
-        expect.any(Function)
+        { host: 'irc.example.com', port: 6667, rejectUnauthorized: true }
       );
     });
 
@@ -95,7 +91,7 @@ describe('IrcClient', () => {
       client.on('socket connected', socketConnectedHandler);
 
       client.connect(defaultOptions);
-      connectCallback?.();
+      mockSocket.emit('connect');
 
       expect(socketConnectedHandler).toHaveBeenCalledWith();
     });
@@ -103,7 +99,7 @@ describe('IrcClient', () => {
     it('should send CAP LS 302, NICK and USER commands on connect', () => {
       const client = new IrcClient();
       client.connect(defaultOptions);
-      connectCallback?.();
+      mockSocket.emit('connect');
 
       expect(mockSocket.write).toHaveBeenCalledWith('CAP LS 302\r\n');
       expect(mockSocket.write).toHaveBeenCalledWith('NICK testuser\r\n');
@@ -116,7 +112,7 @@ describe('IrcClient', () => {
       client.on('raw', rawHandler);
 
       client.connect(defaultOptions);
-      connectCallback?.();
+      mockSocket.emit('connect');
 
       expect(rawHandler).toHaveBeenCalledWith('CAP LS 302', false);
       expect(rawHandler).toHaveBeenCalledWith('NICK testuser', false);
@@ -124,6 +120,46 @@ describe('IrcClient', () => {
         'USER testuser 0 * :Test User',
         false,
       );
+    });
+
+    it('should destroy previous connection on reconnect', () => {
+      const client = new IrcClient();
+      const oldSocket = mockSocket;
+
+      client.connect(defaultOptions);
+      mockSocket.emit('connect');
+
+      // Reconnect with new socket
+      mockSocket = createMockSocket();
+      client.connect(defaultOptions);
+
+      expect(oldSocket.destroy).toHaveBeenCalled();
+    });
+  });
+
+  describe('connection timeout', () => {
+    it('should set connection timeout on socket', () => {
+      const client = new IrcClient();
+      client.connect(defaultOptions);
+
+      expect(mockSocket.setTimeout).toHaveBeenCalledWith(30000);
+    });
+
+    it('should destroy socket on connection timeout', () => {
+      const client = new IrcClient();
+      client.connect(defaultOptions);
+
+      mockSocket.emit('timeout');
+
+      expect(mockSocket.destroy).toHaveBeenCalledWith(expect.any(Error));
+    });
+
+    it('should clear connection timeout after successful connect', () => {
+      const client = new IrcClient();
+      client.connect(defaultOptions);
+      mockSocket.emit('connect');
+
+      expect(mockSocket.setTimeout).toHaveBeenCalledWith(0);
     });
   });
 
@@ -134,7 +170,7 @@ describe('IrcClient', () => {
       client.on('raw', rawHandler);
 
       client.connect(defaultOptions);
-      connectCallback?.();
+      mockSocket.emit('connect');
       rawHandler.mockClear();
 
       mockSocket.emit('data', Buffer.from(':server.test NOTICE * :Welcome\r\n'));
@@ -151,7 +187,7 @@ describe('IrcClient', () => {
       client.on('raw', rawHandler);
 
       client.connect(defaultOptions);
-      connectCallback?.();
+      mockSocket.emit('connect');
       rawHandler.mockClear();
 
       mockSocket.emit('data', Buffer.from(':server NOTICE * :Line1\r\n:server NOTICE * :Line2\r\n'));
@@ -173,7 +209,7 @@ describe('IrcClient', () => {
       client.on('raw', rawHandler);
 
       client.connect(defaultOptions);
-      connectCallback?.();
+      mockSocket.emit('connect');
       rawHandler.mockClear();
 
       // Send partial data
@@ -191,7 +227,7 @@ describe('IrcClient', () => {
     it('should respond to PING with PONG', () => {
       const client = new IrcClient();
       client.connect(defaultOptions);
-      connectCallback?.();
+      mockSocket.emit('connect');
       mockSocket.write.mockClear();
 
       mockSocket.emit('data', Buffer.from('PING :server.test\r\n'));
@@ -205,7 +241,7 @@ describe('IrcClient', () => {
       client.on('connected', connectedHandler);
 
       client.connect(defaultOptions);
-      connectCallback?.();
+      mockSocket.emit('connect');
 
       mockSocket.emit('data', Buffer.from(':server 001 testuser :Welcome to the IRC Network\r\n'));
 
@@ -218,7 +254,7 @@ describe('IrcClient', () => {
       client.on('connected', connectedHandler);
 
       client.connect(defaultOptions);
-      connectCallback?.();
+      mockSocket.emit('connect');
 
       mockSocket.emit(
         'data',
@@ -234,7 +270,7 @@ describe('IrcClient', () => {
       client.on('connected', connectedHandler);
 
       client.connect(defaultOptions);
-      connectCallback?.();
+      mockSocket.emit('connect');
 
       mockSocket.emit(
         'data',
@@ -247,7 +283,7 @@ describe('IrcClient', () => {
     it('should destroy socket on buffer overflow', () => {
       const client = new IrcClient();
       client.connect(defaultOptions);
-      connectCallback?.();
+      mockSocket.emit('connect');
 
       // Send >2MB without \r\n terminators
       const chunk = Buffer.alloc(1024 * 1024, 0x41); // 1MB of 'A'
@@ -268,7 +304,7 @@ describe('IrcClient', () => {
       client.on('raw', rawHandler);
 
       client.connect(defaultOptions);
-      connectCallback?.();
+      mockSocket.emit('connect');
       rawHandler.mockClear();
 
       mockSocket.emit('data', Buffer.from('\r\n\r\n:server NOTICE * :Hello\r\n\r\n'));
@@ -282,21 +318,10 @@ describe('IrcClient', () => {
   });
 
   describe('ping/pong mechanism', () => {
-    it('should send PING at configured interval', () => {
-      const client = new IrcClient();
-      client.connect({ ...defaultOptions, ping_interval: 60 });
-      connectCallback?.();
-      mockSocket.write.mockClear();
-
-      vi.advanceTimersByTime(60000);
-
-      expect(mockSocket.write).toHaveBeenCalledWith(expect.stringMatching(/^PING :\d+\r\n$/));
-    });
-
-    it('should use default 30 second ping interval', () => {
+    it('should send PING at 30 second intervals', () => {
       const client = new IrcClient();
       client.connect(defaultOptions);
-      connectCallback?.();
+      mockSocket.emit('connect');
       mockSocket.write.mockClear();
 
       vi.advanceTimersByTime(30000);
@@ -304,53 +329,35 @@ describe('IrcClient', () => {
       expect(mockSocket.write).toHaveBeenCalledWith(expect.stringMatching(/^PING :\d+\r\n$/));
     });
 
-    it('should destroy socket on ping timeout', () => {
+    it('should destroy socket on pong timeout', () => {
       const client = new IrcClient();
-      client.connect({ ...defaultOptions, ping_timeout: 60 });
-      connectCallback?.();
+      client.connect({ ...defaultOptions, pongTimeout: 10 });
+      mockSocket.emit('connect');
 
-      // Ping timeout starts on first data received
-      mockSocket.emit('data', Buffer.from(':server NOTICE * :test\r\n'));
+      // At 30s, PING sent + 10s pong timeout starts
+      vi.advanceTimersByTime(30000);
 
-      vi.advanceTimersByTime(60000);
-
-      expect(mockSocket.destroy).toHaveBeenCalled();
-    });
-
-    it('should use default 120 second ping timeout', () => {
-      const client = new IrcClient();
-      client.connect(defaultOptions);
-      connectCallback?.();
-
-      // Ping timeout starts on first data received
-      mockSocket.emit('data', Buffer.from(':server NOTICE * :test\r\n'));
-
-      vi.advanceTimersByTime(119000);
-      expect(mockSocket.destroy).not.toHaveBeenCalled();
-
-      vi.advanceTimersByTime(1000);
-      expect(mockSocket.destroy).toHaveBeenCalled();
-    });
-
-    it('should reset ping timeout on receiving data', () => {
-      const client = new IrcClient();
-      client.connect({ ...defaultOptions, ping_timeout: 60 });
-      connectCallback?.();
-
-      // Wait 50 seconds
-      vi.advanceTimersByTime(50000);
-      expect(mockSocket.destroy).not.toHaveBeenCalled();
-
-      // Receive data - should reset timeout
-      mockSocket.emit('data', Buffer.from(':server NOTICE * :test\r\n'));
-
-      // Wait another 50 seconds
-      vi.advanceTimersByTime(50000);
-      expect(mockSocket.destroy).not.toHaveBeenCalled();
-
-      // Wait 10 more seconds (total 60 from last data)
+      // At 40s, pong timeout fires
       vi.advanceTimersByTime(10000);
-      expect(mockSocket.destroy).toHaveBeenCalled();
+
+      expect(mockSocket.destroy).toHaveBeenCalledWith(expect.any(Error));
+    });
+
+    it('should clear pong timeout on receiving data', () => {
+      const client = new IrcClient();
+      client.connect({ ...defaultOptions, pongTimeout: 10 });
+      mockSocket.emit('connect');
+
+      // At 30s, PING sent + 10s pong timeout starts
+      vi.advanceTimersByTime(30000);
+
+      // At 35s, receive data — clears pong timeout
+      vi.advanceTimersByTime(5000);
+      mockSocket.emit('data', Buffer.from(':server NOTICE * :test\r\n'));
+
+      // At 40s (when timeout would have fired), no destroy
+      vi.advanceTimersByTime(5000);
+      expect(mockSocket.destroy).not.toHaveBeenCalled();
     });
   });
 
@@ -361,7 +368,7 @@ describe('IrcClient', () => {
       client.on('close', closeHandler);
 
       client.connect(defaultOptions);
-      connectCallback?.();
+      mockSocket.emit('connect');
 
       mockSocket.emit('close');
 
@@ -371,7 +378,7 @@ describe('IrcClient', () => {
     it('should cleanup timers on socket close', () => {
       const client = new IrcClient();
       client.connect(defaultOptions);
-      connectCallback?.();
+      mockSocket.emit('connect');
 
       mockSocket.emit('close');
 
@@ -383,17 +390,16 @@ describe('IrcClient', () => {
       expect(mockSocket.write).not.toHaveBeenCalled();
     });
 
-    it('should log error and emit error event on socket error', () => {
+    it('should emit error event on socket error', () => {
       const client = new IrcClient();
       const errorHandler = vi.fn();
       client.on('error', errorHandler);
       client.connect(defaultOptions);
-      connectCallback?.();
+      mockSocket.emit('connect');
 
       const error = new Error('Connection reset');
       mockSocket.emit('error', error);
 
-      expect(console.error).toHaveBeenCalledWith('IRC socket error: Connection reset');
       expect(errorHandler).toHaveBeenCalledWith(error);
     });
   });
@@ -402,7 +408,7 @@ describe('IrcClient', () => {
     it('should send QUIT with message and end socket', () => {
       const client = new IrcClient();
       client.connect(defaultOptions);
-      connectCallback?.();
+      mockSocket.emit('connect');
       mockSocket.write.mockClear();
 
       client.quit('Goodbye!');
@@ -414,7 +420,7 @@ describe('IrcClient', () => {
     it('should send QUIT without message when not provided', () => {
       const client = new IrcClient();
       client.connect(defaultOptions);
-      connectCallback?.();
+      mockSocket.emit('connect');
       mockSocket.write.mockClear();
 
       client.quit();
@@ -426,7 +432,7 @@ describe('IrcClient', () => {
     it('should not send QUIT if socket is not writable', () => {
       const client = new IrcClient();
       client.connect(defaultOptions);
-      connectCallback?.();
+      mockSocket.emit('connect');
       mockSocket.writable = false;
       mockSocket.write.mockClear();
 
@@ -439,7 +445,7 @@ describe('IrcClient', () => {
     it('should cleanup timers on quit', () => {
       const client = new IrcClient();
       client.connect(defaultOptions);
-      connectCallback?.();
+      mockSocket.emit('connect');
 
       client.quit();
 
@@ -461,7 +467,7 @@ describe('IrcClient', () => {
     it('should send string data', () => {
       const client = new IrcClient();
       client.connect(defaultOptions);
-      connectCallback?.();
+      mockSocket.emit('connect');
       mockSocket.write.mockClear();
 
       client.send('PRIVMSG #channel :Hello world');
@@ -475,7 +481,7 @@ describe('IrcClient', () => {
       client.on('raw', rawHandler);
 
       client.connect(defaultOptions);
-      connectCallback?.();
+      mockSocket.emit('connect');
       rawHandler.mockClear();
 
       client.send('JOIN #test');
@@ -486,7 +492,7 @@ describe('IrcClient', () => {
     it('should not send if socket is not writable', () => {
       const client = new IrcClient();
       client.connect(defaultOptions);
-      connectCallback?.();
+      mockSocket.emit('connect');
       mockSocket.writable = false;
       mockSocket.write.mockClear();
 
@@ -515,7 +521,7 @@ describe('IrcClient', () => {
     it('should return true when socket is writable', () => {
       const client = new IrcClient();
       client.connect(defaultOptions);
-      connectCallback?.();
+      mockSocket.emit('connect');
 
       expect(client.connected).toBe(true);
     });
@@ -523,7 +529,7 @@ describe('IrcClient', () => {
     it('should return false when socket is not writable', () => {
       const client = new IrcClient();
       client.connect(defaultOptions);
-      connectCallback?.();
+      mockSocket.emit('connect');
       mockSocket.writable = false;
 
       expect(client.connected).toBe(false);
@@ -534,7 +540,7 @@ describe('IrcClient', () => {
     it('should destroy the socket', () => {
       const client = new IrcClient();
       client.connect(defaultOptions);
-      connectCallback?.();
+      mockSocket.emit('connect');
 
       client.destroy();
 
@@ -544,7 +550,7 @@ describe('IrcClient', () => {
     it('should cleanup timers', () => {
       const client = new IrcClient();
       client.connect(defaultOptions);
-      connectCallback?.();
+      mockSocket.emit('connect');
 
       client.destroy();
 
@@ -568,14 +574,14 @@ describe('IrcClient', () => {
 
       // First connection with incomplete data
       client.connect(defaultOptions);
-      connectCallback?.();
+      mockSocket.emit('connect');
       rawHandler.mockClear();
       mockSocket.emit('data', Buffer.from(':server NOTICE * :Incomplete'));
 
       // Reconnect - buffer should be cleared
       mockSocket = createMockSocket();
       client.connect(defaultOptions);
-      connectCallback?.();
+      mockSocket.emit('connect');
       rawHandler.mockClear();
 
       // New complete message should work
