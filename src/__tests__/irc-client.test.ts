@@ -87,17 +87,6 @@ describe('Client', () => {
       );
     });
 
-    it('should emit socket connected event on connect', () => {
-      const client = new Client();
-      const socketConnectedHandler = vi.fn();
-      client.on('socket connected', socketConnectedHandler);
-
-      client.connect(defaultOptions);
-      connectCallback?.();
-
-      expect(socketConnectedHandler).toHaveBeenCalledWith({});
-    });
-
     it('should send CAP LS 302, NICK and USER commands on connect', () => {
       const client = new Client();
       client.connect(defaultOptions);

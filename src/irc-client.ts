@@ -97,8 +97,6 @@ export class Client extends EventEmitter {
   }
 
   private onSocketConnect(): void {
-    this.emit('socket connected', {});
-
     // Only send registration if this is a full connection (has nick)
     const fullOptions = this.options as IrcClientOptions;
     if (fullOptions?.nick) {
