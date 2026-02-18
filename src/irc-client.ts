@@ -58,9 +58,8 @@ export type IrcRawConnectionOptions = SocketConnectionOptions;
 
 export class IrcClient extends EventEmitter {
   private socket: net.Socket | tls.TLSSocket | null = null;
-  private options: SocketConnectionOptions | null = null;
   private receiveBuffer = Buffer.alloc(0);
-  private encoding: BufferEncoding = 'utf8';
+  private characterEncoding: BufferEncoding = 'utf8';
   private pingIntervalTimer: ReturnType<typeof setInterval> | null = null;
   private pongTimeoutTimer: ReturnType<typeof setTimeout> | null = null;
   private pongTimeoutMs = DEFAULT_PONG_TIMEOUT_MS;
@@ -79,8 +78,7 @@ export class IrcClient extends EventEmitter {
     // Clean up any existing connection
     this.destroy();
 
-    this.options = options;
-    this.encoding = options.encoding ?? 'utf8';
+    this.characterEncoding = options.encoding ?? 'utf8';
     this.receiveBuffer = Buffer.alloc(0);
     this.pongTimeoutMs = (options.pongTimeout ?? 120) * 1000;
 
@@ -88,7 +86,7 @@ export class IrcClient extends EventEmitter {
     this.socket = socket;
 
     socket.once('connect', () => {
-      this.handleSocketConnected();
+      this.handleSocketConnected(options);
     });
 
     socket.on('data', (data: Buffer) => this.handleIncomingData(data));
@@ -103,8 +101,7 @@ export class IrcClient extends EventEmitter {
     // Clean up any existing connection
     this.destroy();
 
-    this.options = options;
-    this.encoding = options.encoding ?? 'utf8';
+    this.characterEncoding = options.encoding ?? 'utf8';
     this.receiveBuffer = Buffer.alloc(0);
     this.pongTimeoutMs = (options.pongTimeout ?? 120) * 1000;
 
@@ -112,7 +109,7 @@ export class IrcClient extends EventEmitter {
     this.socket = socket;
 
     socket.once('connect', () => {
-      this.handleRawSocketConnected();
+      this.handleRawSocketConnected(options);
     });
 
     socket.on('data', (data: Buffer) => this.handleIncomingData(data));
@@ -121,7 +118,7 @@ export class IrcClient extends EventEmitter {
   }
 
   private createSocket(options: SocketConnectionOptions): net.Socket | tls.TLSSocket {
-    const connectOptions = {
+    const connectionConfig = {
       host: options.host,
       port: options.port,
     };
@@ -130,11 +127,11 @@ export class IrcClient extends EventEmitter {
 
     if (options.tls) {
       socket = tls.connect({
-        ...connectOptions,
+        ...connectionConfig,
         rejectUnauthorized: true,
       });
     } else {
-      socket = net.connect(connectOptions);
+      socket = net.connect(connectionConfig);
     }
 
     // Connection establishment timeout — destroy socket if handshake
@@ -147,26 +144,20 @@ export class IrcClient extends EventEmitter {
     return socket;
   }
 
-  private handleSocketConnected(): void {
+  private handleSocketConnected(options: IrcClientOptions): void {
     // Handshake succeeded — disable the connection establishment timeout
     this.socket?.setTimeout(0);
 
     this.emit('socket connected');
 
-    // Only send registration if this is a full connection (has nick)
-    const fullOptions = this.options as IrcClientOptions;
-    if (fullOptions?.nick) {
-      // Send CAP LS 302 to initiate capability negotiation (IRCv3)
-      // This must be sent before NICK/USER for proper cap negotiation
-      this.send('CAP LS 302');
-      this.send(`NICK ${fullOptions.nick}`);
-      this.send(`USER ${fullOptions.username} 0 * :${fullOptions.gecos}`);
-    }
+    this.send('CAP LS 302');
+    this.send(`NICK ${stripCRLF(options.nick)}`);
+    this.send(`USER ${stripCRLF(options.username)} 0 * :${stripCRLF(options.gecos)}`);
 
     this.startPingTimer();
   }
 
-  private handleRawSocketConnected(): void {
+  private handleRawSocketConnected(options: IrcRawConnectionOptions): void {
     // Handshake succeeded — disable the connection establishment timeout
     this.socket?.setTimeout(0);
 
@@ -180,7 +171,7 @@ export class IrcClient extends EventEmitter {
 
     let lineEndIndex: number;
     while ((lineEndIndex = this.receiveBuffer.indexOf(IRC_LINE_ENDING)) !== -1) {
-      const line = this.receiveBuffer.subarray(0, lineEndIndex).toString(this.encoding);
+      const line = this.receiveBuffer.subarray(0, lineEndIndex).toString(this.characterEncoding);
       this.receiveBuffer = this.receiveBuffer.subarray(lineEndIndex + 2);
 
       if (line.length > 0) {
@@ -201,12 +192,9 @@ export class IrcClient extends EventEmitter {
 
     // Handle PING automatically
     if (line.startsWith('PING ')) {
-      const pingArg = line.substring(5);
-      this.send(`PONG ${pingArg}`);
-    }
-
-    // Emit connected on RPL_WELCOME (001)
-    if (RPL_WELCOME_PATTERN.test(line)) {
+      const pingData = line.slice(5);
+      this.send(`PONG ${pingData}`);
+    } else if (RPL_WELCOME_PATTERN.test(line)) {
       this.emit('connected');
     }
   }
