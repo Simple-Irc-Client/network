@@ -122,6 +122,96 @@ describe('IrcClient', () => {
       );
     });
 
+    it('should send CAP LS 302 after connect and receive server CAP response', () => {
+      const client = new IrcClient();
+      const rawHandler = vi.fn();
+      client.on('raw', rawHandler);
+
+      client.connect(defaultOptions);
+      mockSocket.emit('connect');
+
+      // Verify CAP LS 302 was sent as the first registration command
+      expect(mockSocket.write).toHaveBeenCalledWith('CAP LS 302\r\n');
+      expect(rawHandler).toHaveBeenCalledWith('CAP LS 302', false);
+
+      rawHandler.mockClear();
+
+      // Server responds with multiline CAP LS (302 style with * continuation)
+      mockSocket.emit('data', Buffer.from(
+        'CAP * LS * :message-tags server-time batch\r\n'
+        + 'CAP * LS :standard-replies labeled-response\r\n'
+      ));
+
+      // Both CAP LS response lines should be emitted as raw server events
+      expect(rawHandler).toHaveBeenCalledTimes(2);
+      expect(rawHandler).toHaveBeenCalledWith(
+        'CAP * LS * :message-tags server-time batch',
+        true,
+      );
+      expect(rawHandler).toHaveBeenCalledWith(
+        'CAP * LS :standard-replies labeled-response',
+        true,
+      );
+    });
+
+    it('should retry CAP LS 302 if no CAP response within timeout', () => {
+      const client = new IrcClient();
+      client.connect(defaultOptions);
+      mockSocket.emit('connect');
+
+      // Initial CAP LS 302 sent on connect
+      expect(mockSocket.write).toHaveBeenCalledWith('CAP LS 302\r\n');
+      const initialCallCount = mockSocket.write.mock.calls.filter(
+        (c: unknown[]) => c[0] === 'CAP LS 302\r\n'
+      ).length;
+      expect(initialCallCount).toBe(1);
+
+      // No CAP response — advance past the 10s timeout
+      vi.advanceTimersByTime(10000);
+
+      // Should have retried CAP LS 302
+      const retryCallCount = mockSocket.write.mock.calls.filter(
+        (c: unknown[]) => c[0] === 'CAP LS 302\r\n'
+      ).length;
+      expect(retryCallCount).toBe(2);
+    });
+
+    it('should not retry CAP LS 302 after receiving CAP response', () => {
+      const client = new IrcClient();
+      client.connect(defaultOptions);
+      mockSocket.emit('connect');
+      mockSocket.write.mockClear();
+
+      // Server responds with CAP LS
+      mockSocket.emit('data', Buffer.from('CAP * LS :multi-prefix\r\n'));
+
+      // Advance past timeout — should NOT retry
+      vi.advanceTimersByTime(10000);
+
+      // Only PING should appear, no extra CAP LS 302
+      const capCalls = mockSocket.write.mock.calls.filter(
+        (c: unknown[]) => c[0] === 'CAP LS 302\r\n'
+      );
+      expect(capCalls.length).toBe(0);
+    });
+
+    it('should stop retrying CAP LS 302 after max retries', () => {
+      const client = new IrcClient();
+      client.connect(defaultOptions);
+      mockSocket.emit('connect');
+
+      // Advance past 3 retry windows (initial + 2 retries max)
+      vi.advanceTimersByTime(10000); // 1st retry
+      vi.advanceTimersByTime(10000); // 2nd retry
+      vi.advanceTimersByTime(10000); // should not retry again
+
+      const capCalls = mockSocket.write.mock.calls.filter(
+        (c: unknown[]) => c[0] === 'CAP LS 302\r\n'
+      );
+      // 1 initial + 2 retries = 3 total
+      expect(capCalls.length).toBe(3);
+    });
+
     it('should destroy previous connection on reconnect', () => {
       const client = new IrcClient();
       const oldSocket = mockSocket;

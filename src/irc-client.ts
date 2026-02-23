@@ -27,6 +27,12 @@ const CONNECTION_TIMEOUT_MS = 30000;
 /** Default timeout for receiving server response after sending PING (120 seconds) */
 const DEFAULT_PONG_TIMEOUT_MS = 120000;
 
+/** Timeout for CAP LS response before retrying (10 seconds) */
+const CAP_RESPONSE_TIMEOUT_MS = 10000;
+
+/** Maximum number of CAP LS retries */
+const CAP_MAX_RETRIES = 2;
+
 /** Strip CR/LF to prevent IRC line injection */
 const stripCRLF = (input: string): string => input.replace(/[\r\n]/g, '');
 
@@ -63,6 +69,9 @@ export class IrcClient extends EventEmitter {
   private pingIntervalTimer: ReturnType<typeof setInterval> | null = null;
   private pongTimeoutTimer: ReturnType<typeof setTimeout> | null = null;
   private pongTimeoutMs = DEFAULT_PONG_TIMEOUT_MS;
+  private capResponseTimer: ReturnType<typeof setTimeout> | null = null;
+  private capRetryCount = 0;
+  private capResponseReceived = false;
 
   /**
    * Check if the connection is currently active and writable
@@ -150,11 +159,37 @@ export class IrcClient extends EventEmitter {
 
     this.emit('socket connected');
 
-    this.send('CAP LS 302');
+    this.capRetryCount = 0;
+    this.capResponseReceived = false;
+    this.sendCapLs();
     this.send(`NICK ${stripCRLF(options.nick)}`);
     this.send(`USER ${stripCRLF(options.username)} 0 * :${stripCRLF(options.gecos)}`);
 
     this.startPingTimer();
+  }
+
+  private sendCapLs(): void {
+    this.send('CAP LS 302');
+    this.startCapResponseTimer();
+  }
+
+  private startCapResponseTimer(): void {
+    this.clearCapResponseTimer();
+    this.capResponseTimer = setTimeout(() => {
+      if (this.capResponseReceived) return;
+
+      if (this.capRetryCount < CAP_MAX_RETRIES) {
+        this.capRetryCount++;
+        this.sendCapLs();
+      }
+    }, CAP_RESPONSE_TIMEOUT_MS);
+  }
+
+  private clearCapResponseTimer(): void {
+    if (this.capResponseTimer) {
+      clearTimeout(this.capResponseTimer);
+      this.capResponseTimer = null;
+    }
   }
 
   private handleRawSocketConnected(options: IrcRawConnectionOptions): void {
@@ -194,6 +229,9 @@ export class IrcClient extends EventEmitter {
     if (line.startsWith('PING ')) {
       const pingData = line.slice(5);
       this.send(`PONG ${pingData}`);
+    } else if (!this.capResponseReceived && line.startsWith('CAP ')) {
+      this.capResponseReceived = true;
+      this.clearCapResponseTimer();
     } else if (RPL_WELCOME_PATTERN.test(line)) {
       this.emit('connected');
     }
@@ -208,6 +246,7 @@ export class IrcClient extends EventEmitter {
 
   private handleSocketClosed(): void {
     this.stopPingTimer();
+    this.clearCapResponseTimer();
     this.emit('close');
   }
 
@@ -246,10 +285,12 @@ export class IrcClient extends EventEmitter {
       this.socket.end();
     }
     this.stopPingTimer();
+    this.clearCapResponseTimer();
   }
 
   destroy(): void {
     this.stopPingTimer();
+    this.clearCapResponseTimer();
 
     if (this.socket) {
       this.socket.destroy();
