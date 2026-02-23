@@ -361,4 +361,163 @@ describe('main.ts', () => {
       expect(client2.quit).not.toHaveBeenCalled();
     });
   });
+
+  describe('Message ordering (send queue serialization)', () => {
+    it('should hold second message until first encryption completes', async () => {
+      const { encryptString: mockEncrypt } = await import('../encryption.js');
+      const encryptFn = vi.mocked(mockEncrypt);
+
+      let resolveFirst!: (value: string) => void;
+
+      // First call: slow encryption (pending promise)
+      // Second call: instant encryption
+      encryptFn
+        .mockImplementationOnce(
+          () => new Promise<string>((r) => { resolveFirst = r; }),
+        )
+        .mockImplementation(
+          (s: string) => Promise.resolve(`enc:${s}`),
+        );
+
+      const { mockWs } = simulateUpgrade();
+      const rawHandler = getHandler(mockIrcClientInstance.on.mock.calls, 'raw');
+
+      // IRC server sends two lines rapidly (e.g. multiline CAP LS)
+      rawHandler('CAP * LS * :message-tags server-time batch', true);
+      rawHandler('CAP * LS :standard-replies', true);
+      await flushPromises();
+
+      // First encryption is pending — nothing sent yet, even though
+      // the second message's encryption would be instant
+      expect(mockWs.send).not.toHaveBeenCalled();
+
+      // Resolve the slow first encryption
+      resolveFirst('enc:first-line');
+      await flushPromises();
+
+      // Both should now be sent, in the correct order
+      expect(mockWs.send).toHaveBeenCalledTimes(2);
+      expect(mockWs.send.mock.calls[0]![0]).toBe('enc:first-line');
+      expect(mockWs.send.mock.calls[1]![0]).toBe('enc:CAP * LS :standard-replies');
+    });
+
+    it('should deliver many messages in strict order', async () => {
+      const { encryptString: mockEncrypt } = await import('../encryption.js');
+      vi.mocked(mockEncrypt).mockImplementation(
+        (s: string) => Promise.resolve(`enc:${s}`),
+      );
+
+      const { mockWs } = simulateUpgrade();
+      const rawHandler = getHandler(mockIrcClientInstance.on.mock.calls, 'raw');
+
+      for (let i = 0; i < 20; i++) {
+        rawHandler(`LINE ${i}`, true);
+      }
+
+      // Drain the serialized promise chain
+      for (let i = 0; i < 50; i++) await flushPromises();
+
+      expect(mockWs.send).toHaveBeenCalledTimes(20);
+      for (let i = 0; i < 20; i++) {
+        expect(mockWs.send.mock.calls[i]![0]).toBe(`enc:LINE ${i}`);
+      }
+    });
+
+    it('should skip closed socket without blocking subsequent messages', async () => {
+      const { encryptString: mockEncrypt } = await import('../encryption.js');
+      vi.mocked(mockEncrypt).mockImplementation(
+        (s: string) => Promise.resolve(`enc:${s}`),
+      );
+
+      const { mockWs } = simulateUpgrade();
+      const rawHandler = getHandler(mockIrcClientInstance.on.mock.calls, 'raw');
+
+      // Send first message while open
+      rawHandler('LINE 0', true);
+      await flushPromises();
+      expect(mockWs.send).toHaveBeenCalledTimes(1);
+
+      // Socket closes
+      mockWs.readyState = 3; // CLOSED
+
+      // Send a message to the closed socket
+      rawHandler('LINE 1', true);
+      await flushPromises();
+
+      // Reopen
+      mockWs.readyState = 1; // OPEN
+
+      // Next message should still be delivered
+      rawHandler('LINE 2', true);
+      await flushPromises();
+
+      expect(mockWs.send).toHaveBeenCalledTimes(2);
+      expect(mockWs.send.mock.calls[1]![0]).toBe('enc:LINE 2');
+    });
+
+    it('should skip failed encryption without blocking subsequent messages', async () => {
+      const { encryptString: mockEncrypt } = await import('../encryption.js');
+      vi.mocked(mockEncrypt)
+        .mockImplementationOnce(() => Promise.reject(new Error('encrypt failed')))
+        .mockImplementation((s: string) => Promise.resolve(`enc:${s}`));
+
+      const { mockWs } = simulateUpgrade();
+      const rawHandler = getHandler(mockIrcClientInstance.on.mock.calls, 'raw');
+
+      rawHandler('LINE 0', true);
+      rawHandler('LINE 1', true);
+      await flushPromises();
+      await flushPromises();
+
+      // First message failed encryption, second should still arrive
+      expect(mockWs.send).toHaveBeenCalledTimes(1);
+      expect(mockWs.send.mock.calls[0]![0]).toBe('enc:LINE 1');
+    });
+
+    it('should reset send queue on new connection', async () => {
+      const { encryptString: mockEncrypt } = await import('../encryption.js');
+      const encryptFn = vi.mocked(mockEncrypt);
+
+      // Stall encryption for the first connection indefinitely
+      encryptFn.mockImplementation(
+        () => new Promise<string>(() => { /* never resolves */ }),
+      );
+
+      const { mockWs: ws1 } = simulateUpgrade('irc.first.com', 6667);
+      const client1RawHandler = getHandler(
+        allCreatedClients[allCreatedClients.length - 1]!.on.mock.calls,
+        'raw',
+      );
+
+      // Queue a send that will never complete
+      client1RawHandler('STALLED', true);
+      await flushPromises();
+
+      // First connection's message is stuck
+      expect(ws1.send).not.toHaveBeenCalled();
+
+      // Close first connection
+      const ws1CloseHandler = getHandler(ws1.on.mock.calls, 'close');
+      ws1CloseHandler();
+      ws1.readyState = 3;
+
+      // Switch to instant encryption for the second connection
+      encryptFn.mockImplementation(
+        (s: string) => Promise.resolve(`enc:${s}`),
+      );
+
+      // New connection — handleNewClient resets sendQueue
+      const { mockWs: ws2 } = simulateUpgrade('irc.second.com', 6667);
+      const client2RawHandler = getHandler(
+        allCreatedClients[allCreatedClients.length - 1]!.on.mock.calls,
+        'raw',
+      );
+
+      client2RawHandler('FRESH', true);
+      await flushPromises();
+
+      // New connection's message should arrive, not blocked by old stalled queue
+      expect(ws2.send).toHaveBeenCalledWith('enc:FRESH');
+    });
+  });
 });
