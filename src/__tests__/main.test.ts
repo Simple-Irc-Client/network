@@ -317,8 +317,8 @@ describe('main.ts', () => {
     it('should not send stale IRC events to a new WebSocket after reconnect', async () => {
       // First connection
       const { mockWs: ws1 } = simulateUpgrade('irc.first.com', 6667);
-      // eslint-disable-next-line @typescript-eslint/no-non-null-assertion
-      const client1 = allCreatedClients[allCreatedClients.length - 1]!;
+      const client1 = allCreatedClients[allCreatedClients.length - 1];
+      if (!client1) throw new Error('No client created');
       const client1RawHandler = getHandler(client1.on.mock.calls, 'raw');
 
       // Close first connection (simulate WS close)
@@ -342,8 +342,8 @@ describe('main.ts', () => {
     it('should not quit new IRC client when old WebSocket close fires late', () => {
       // First connection
       const { mockWs: ws1 } = simulateUpgrade('irc.first.com', 6667);
-      // eslint-disable-next-line @typescript-eslint/no-non-null-assertion
-      const client1 = allCreatedClients[allCreatedClients.length - 1]!;
+      const client1 = allCreatedClients[allCreatedClients.length - 1];
+      if (!client1) throw new Error('No client created');
 
       // Simulate the first WS closing and immediately reconnecting
       const ws1CloseHandler = getHandler(ws1.on.mock.calls, 'close');
@@ -352,8 +352,8 @@ describe('main.ts', () => {
 
       // Second connection
       simulateUpgrade('irc.second.com', 6667);
-      // eslint-disable-next-line @typescript-eslint/no-non-null-assertion
-      const client2 = allCreatedClients[allCreatedClients.length - 1]!;
+      const client2 = allCreatedClients[allCreatedClients.length - 1];
+      if (!client2) throw new Error('No client created');
 
       // client1 should have been quit by ws1's close handler
       expect(client1.quit).toHaveBeenCalled();
@@ -397,8 +397,8 @@ describe('main.ts', () => {
 
       // Both should now be sent, in the correct order
       expect(mockWs.send).toHaveBeenCalledTimes(2);
-      expect(mockWs.send.mock.calls[0]![0]).toBe('enc:first-line');
-      expect(mockWs.send.mock.calls[1]![0]).toBe('enc:CAP * LS :standard-replies');
+      expect(mockWs.send.mock.calls[0]?.[0]).toBe('enc:first-line');
+      expect(mockWs.send.mock.calls[1]?.[0]).toBe('enc:CAP * LS :standard-replies');
     });
 
     it('should deliver many messages in strict order', async () => {
@@ -419,7 +419,7 @@ describe('main.ts', () => {
 
       expect(mockWs.send).toHaveBeenCalledTimes(20);
       for (let i = 0; i < 20; i++) {
-        expect(mockWs.send.mock.calls[i]![0]).toBe(`enc:LINE ${i}`);
+        expect(mockWs.send.mock.calls[i]?.[0]).toBe(`enc:LINE ${i}`);
       }
     });
 
@@ -452,7 +452,7 @@ describe('main.ts', () => {
       await flushPromises();
 
       expect(mockWs.send).toHaveBeenCalledTimes(2);
-      expect(mockWs.send.mock.calls[1]![0]).toBe('enc:LINE 2');
+      expect(mockWs.send.mock.calls[1]?.[0]).toBe('enc:LINE 2');
     });
 
     it('should skip failed encryption without blocking subsequent messages', async () => {
@@ -471,7 +471,7 @@ describe('main.ts', () => {
 
       // First message failed encryption, second should still arrive
       expect(mockWs.send).toHaveBeenCalledTimes(1);
-      expect(mockWs.send.mock.calls[0]![0]).toBe('enc:LINE 1');
+      expect(mockWs.send.mock.calls[0]?.[0]).toBe('enc:LINE 1');
     });
 
     it('should reset send queue on new connection', async () => {
@@ -484,10 +484,9 @@ describe('main.ts', () => {
       );
 
       const { mockWs: ws1 } = simulateUpgrade('irc.first.com', 6667);
-      const client1RawHandler = getHandler(
-        allCreatedClients[allCreatedClients.length - 1]!.on.mock.calls,
-        'raw',
-      );
+      const lastClient1 = allCreatedClients[allCreatedClients.length - 1];
+      if (!lastClient1) throw new Error('No client created');
+      const client1RawHandler = getHandler(lastClient1.on.mock.calls, 'raw');
 
       // Queue a send that will never complete
       client1RawHandler('STALLED', true);
@@ -508,10 +507,9 @@ describe('main.ts', () => {
 
       // New connection — handleNewClient resets sendQueue
       const { mockWs: ws2 } = simulateUpgrade('irc.second.com', 6667);
-      const client2RawHandler = getHandler(
-        allCreatedClients[allCreatedClients.length - 1]!.on.mock.calls,
-        'raw',
-      );
+      const lastClient2 = allCreatedClients[allCreatedClients.length - 1];
+      if (!lastClient2) throw new Error('No client created');
+      const client2RawHandler = getHandler(lastClient2.on.mock.calls, 'raw');
 
       client2RawHandler('FRESH', true);
       await flushPromises();
