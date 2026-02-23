@@ -54,17 +54,27 @@ let messageCount = 0;
 let rateLimitWindowStart = 0;
 
 /**
+ * Serialized send queue — ensures IRC messages are encrypted and delivered
+ * to the WebSocket client in the same order they arrived from the IRC server.
+ * Without this, concurrent encryptString() calls can resolve out of order.
+ */
+let sendQueue: Promise<void> = Promise.resolve();
+
+/**
  * Send a raw IRC line to a specific WebSocket client (encrypted)
  */
-const sendRawToClient = async (ws: WebSocket, line: string): Promise<void> => {
-  if (ws.readyState === WebSocket.OPEN) {
-    try {
-      const encrypted = await encryptString(line);
-      ws.send(encrypted);
-    } catch {
-      // Fail closed — drop the message rather than sending unencrypted
+const sendRawToClient = (ws: WebSocket, line: string): Promise<void> => {
+  sendQueue = sendQueue.then(async () => {
+    if (ws.readyState === WebSocket.OPEN) {
+      try {
+        const encrypted = await encryptString(line);
+        ws.send(encrypted);
+      } catch {
+        // Fail closed — drop the message rather than sending unencrypted
+      }
     }
-  }
+  });
+  return sendQueue;
 };
 
 /**
@@ -138,9 +148,10 @@ function handleNewClient(
     encoding: serverConfig.encoding,
   });
 
-  // Reset rate limit state for new connection
+  // Reset rate limit and send queue for new connection
   messageCount = 0;
   rateLimitWindowStart = Date.now();
+  sendQueue = Promise.resolve();
 
   // Handle incoming WebSocket messages (encrypted raw IRC commands)
   ws.on('message', async (data: Buffer) => {
