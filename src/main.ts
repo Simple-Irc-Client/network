@@ -225,11 +225,14 @@ function setupIrcEventHandlers(client: IrcClient, ws: WebSocket): void {
     }
   });
 
-  // IRC connection closed - close WebSocket
+  // IRC connection closed - wait for pending messages (e.g. 465, ERROR) to be
+  // delivered before sending the WebSocket close frame.
   client.on('close', () => {
-    if (ws.readyState === WebSocket.OPEN) {
-      ws.close();
-    }
+    void sendQueue.then(() => {
+      if (ws.readyState === WebSocket.OPEN) {
+        ws.close();
+      }
+    });
   });
 
   // Socket error
