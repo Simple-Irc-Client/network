@@ -19,7 +19,6 @@
     /* Interop Constraints */
     "isolatedModules": true,
     "allowSyntheticDefaultImports": true,
-    "esModuleInterop": false,
     "forceConsistentCasingInFileNames": true,
 
     /* Type Checking - Very Strict but Practical */
@@ -43,7 +42,6 @@
     "skipLibCheck": true,
 
     /* Path Mapping */
-    "baseUrl": ".",
     "paths": {
       "@/*": ["./src/*"]
     }
