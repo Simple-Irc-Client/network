@@ -1,4 +1,4 @@
-import { webcrypto } from 'crypto';
+import { webcrypto } from 'node:crypto';
 
 const crypto = webcrypto as unknown as Crypto;
 

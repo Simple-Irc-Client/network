@@ -9,8 +9,8 @@
  */
 
 import { WebSocketServer, WebSocket } from 'ws';
-import { createServer, IncomingMessage } from 'http';
-import { Duplex } from 'stream';
+import { createServer, IncomingMessage } from 'node:http';
+import { Duplex } from 'node:stream';
 import { defaultWebsocketPort, defaultIrcQuitMessage, encryptionKey } from './config.js';
 import { IrcClient } from './irc-client.js';
 import { initEncryption, encryptString, decryptString } from './encryption.js';
@@ -102,7 +102,7 @@ httpServer.on('upgrade', (request: IncomingMessage, socket: Duplex, head: Buffer
   // Parse server configuration from query parameters
   const host = requestUrl.searchParams.get('host');
   const portStr = requestUrl.searchParams.get('port');
-  const port = portStr ? parseInt(portStr, 10) : null;
+  const port = portStr ? Number.parseInt(portStr, 10) : null;
   const tls = requestUrl.searchParams.get('tls') === 'true';
   const VALID_ENCODINGS: ReadonlySet<BufferEncoding> = new Set([
     'utf8', 'utf-8', 'ascii', 'latin1', 'binary', 'utf16le', 'utf-16le', 'ucs2', 'ucs-2', 'base64', 'hex',
@@ -111,7 +111,7 @@ httpServer.on('upgrade', (request: IncomingMessage, socket: Duplex, head: Buffer
   const encoding: BufferEncoding = VALID_ENCODINGS.has(rawEncoding as BufferEncoding) ? (rawEncoding as BufferEncoding) : 'utf8';
 
   // Validate required parameters
-  if (!host || !port || isNaN(port) || port < 1 || port > 65535) {
+  if (!host || !port || Number.isNaN(port) || port < 1 || port > 65535) {
     socket.write('HTTP/1.1 400 Bad Request - Missing or invalid host/port\r\n\r\n');
     socket.destroy();
     return;

@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
-import { EventEmitter } from 'events';
+import { EventEmitter } from 'node:events';
 
 // Create mock socket instance
 const createMockSocket = () => {
@@ -43,8 +43,8 @@ vi.spyOn(console, 'error').mockImplementation(() => undefined);
 
 import { IrcClient } from '../irc-client.js';
 import type { IrcClientOptions } from '../irc-client.js';
-import * as net from 'net';
-import * as tls from 'tls';
+import * as net from 'node:net';
+import * as tls from 'node:tls';
 
 describe('IrcClient', () => {
   const defaultOptions: IrcClientOptions = {
