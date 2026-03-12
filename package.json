@@ -5,7 +5,7 @@
   "license": "AGPL-3.0-or-later",
   "type": "module",
   "scripts": {
-    "start": "tsx --env-file=.env ./server.ts",
+    "start": "mkdir -p logs && tsx --env-file=.env ./server.ts 2>&1 | tee -a logs/$(date +%F).log",
     "dev": "tsx --env-file=.env ./server.ts",
     "pre-build": "tsc",
     "build": "node build.mjs",

@@ -14,7 +14,6 @@ import { Duplex } from 'stream';
 import { defaultWebsocketPort, defaultIrcQuitMessage, encryptionKey } from './config.js';
 import { IrcClient } from './irc-client.js';
 import { initEncryption, encryptString, decryptString } from './encryption.js';
-import { logIrcMessage, closeLogger } from './logger.js';
 
 const WEBSOCKET_PATH = '/webirc';
 
@@ -213,15 +212,11 @@ function setupIrcEventHandlers(client: IrcClient, ws: WebSocket): void {
       if (process.env.NODE_ENV !== 'production') {
         console.log(`${new Date().toISOString()} >> ${sanitizeLog(line.trim())}`);
       }
-      logIrcMessage(line, '>>'); // Log incoming messages
       sendRawToClient(ws, line).catch((err) => {
         console.error(`\x1b[31m${new Date().toISOString()} Failed to send to client: ${sanitizeLog(String(err))}\x1b[0m`);
       });
-    } else {
-      if (process.env.NODE_ENV !== 'production') {
-        console.log(`\x1b[32m${new Date().toISOString()} << ${sanitizeLog(line.trim())}\x1b[0m`);
-      }
-      logIrcMessage(line, '<<'); // Log outgoing messages
+    } else if (process.env.NODE_ENV !== 'production') {
+      console.log(`\x1b[32m${new Date().toISOString()} << ${sanitizeLog(line.trim())}\x1b[0m`);
     }
   });
 
@@ -262,7 +257,6 @@ const shutdown = () => {
   }
   wss.close();
   httpServer.close(() => {
-    closeLogger(); // Close the log file stream
     console.log(`\x1b[33m${new Date().toISOString()} Server stopped\x1b[0m`);
     process.exit(0);
   });
