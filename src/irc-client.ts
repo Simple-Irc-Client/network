@@ -33,6 +33,17 @@ const CAP_RESPONSE_TIMEOUT_MS = 10000;
 /** Maximum number of CAP LS retries */
 const CAP_MAX_RETRIES = 2;
 
+/**
+ * Matches a CAP LS line from the server (with or without server prefix).
+ * Captures an optional continuation marker (* after LS) in group 1.
+ * Formats:
+ *   CAP * LS * :caps...          (no server prefix, continuation)
+ *   CAP * LS :caps...            (no server prefix, final)
+ *   :server CAP nick LS * :caps  (with server prefix, continuation)
+ *   :server CAP nick LS :caps    (with server prefix, final)
+ */
+const CAP_LS_PATTERN = /(?:^|\s)CAP \S+ LS(\s\*)?/;
+
 /** Strip CR/LF to prevent IRC line injection */
 const stripCRLF = (input: string): string => input.replace(/[\r\n]/g, '');
 
@@ -72,6 +83,7 @@ export class IrcClient extends EventEmitter {
   private capResponseTimer: ReturnType<typeof setTimeout> | null = null;
   private capRetryCount = 0;
   private capResponseReceived = false;
+  private capEndSent = false;
 
   /**
    * Check if the connection is currently active and writable
@@ -161,6 +173,7 @@ export class IrcClient extends EventEmitter {
 
     this.capRetryCount = 0;
     this.capResponseReceived = false;
+    this.capEndSent = false;
     this.sendCapLs();
     this.send(`NICK ${stripCRLF(options.nick)}`);
     this.send(`USER ${stripCRLF(options.username)} 0 * :${stripCRLF(options.gecos)}`);
@@ -229,10 +242,27 @@ export class IrcClient extends EventEmitter {
     if (line.startsWith('PING ')) {
       const pingData = line.slice(5);
       this.send(`PONG ${pingData}`);
-    } else if (!this.capResponseReceived && line.startsWith('CAP ')) {
-      this.capResponseReceived = true;
-      this.clearCapResponseTimer();
-    } else if (RPL_WELCOME_PATTERN.test(line)) {
+      return;
+    }
+
+    // Handle CAP LS response — detect both prefixed (:server CAP ...) and
+    // non-prefixed (CAP ...) formats. Send CAP END on the final line.
+    const capLsMatch = CAP_LS_PATTERN.exec(line);
+    if (capLsMatch) {
+      if (!this.capResponseReceived) {
+        this.capResponseReceived = true;
+        this.clearCapResponseTimer();
+      }
+      // Group 1 is ' *' when this is a multiline continuation; absent on final line
+      const isContinuation = capLsMatch[1] !== undefined;
+      if (!isContinuation && !this.capEndSent) {
+        this.capEndSent = true;
+        this.send('CAP END');
+      }
+      return;
+    }
+
+    if (RPL_WELCOME_PATTERN.test(line)) {
       this.emit('connected');
     }
   }

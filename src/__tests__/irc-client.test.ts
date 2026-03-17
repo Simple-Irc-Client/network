@@ -122,18 +122,83 @@ describe('IrcClient', () => {
       );
     });
 
-    it('should send CAP LS 302 after connect and receive server CAP response', () => {
+    it('should send CAP END after receiving single-line CAP LS response', () => {
+      const client = new IrcClient();
+      client.connect(defaultOptions);
+      mockSocket.emit('connect');
+      mockSocket.write.mockClear();
+
+      // Server responds with single CAP LS (no continuation)
+      mockSocket.emit('data', Buffer.from('CAP * LS :multi-prefix\r\n'));
+
+      expect(mockSocket.write).toHaveBeenCalledWith('CAP END\r\n');
+    });
+
+    it('should send CAP END only after final line of multiline CAP LS response', () => {
+      const client = new IrcClient();
+      client.connect(defaultOptions);
+      mockSocket.emit('connect');
+      mockSocket.write.mockClear();
+
+      // Server responds with multiline CAP LS (302 style with * continuation)
+      mockSocket.emit('data', Buffer.from(
+        'CAP * LS * :message-tags server-time batch\r\n'
+      ));
+
+      // CAP END should NOT be sent yet (continuation line)
+      expect(mockSocket.write).not.toHaveBeenCalledWith('CAP END\r\n');
+
+      // Final CAP LS line (no * continuation)
+      mockSocket.emit('data', Buffer.from(
+        'CAP * LS :standard-replies labeled-response\r\n'
+      ));
+
+      // Now CAP END should be sent
+      expect(mockSocket.write).toHaveBeenCalledWith('CAP END\r\n');
+    });
+
+    it('should send CAP END for server-prefixed CAP LS response', () => {
+      const client = new IrcClient();
+      client.connect(defaultOptions);
+      mockSocket.emit('connect');
+      mockSocket.write.mockClear();
+
+      // Real server format with prefix
+      mockSocket.emit('data', Buffer.from(
+        ':ergo.test CAP * LS * :batch chathistory\r\n'
+        + ':ergo.test CAP * LS :message-tags\r\n'
+      ));
+
+      expect(mockSocket.write).toHaveBeenCalledWith('CAP END\r\n');
+      // Only sent once
+      const capEndCalls = mockSocket.write.mock.calls.filter(
+        (c: unknown[]) => c[0] === 'CAP END\r\n'
+      );
+      expect(capEndCalls.length).toBe(1);
+    });
+
+    it('should not send CAP END twice if multiple CAP LS responses arrive', () => {
+      const client = new IrcClient();
+      client.connect(defaultOptions);
+      mockSocket.emit('connect');
+      mockSocket.write.mockClear();
+
+      mockSocket.emit('data', Buffer.from('CAP * LS :multi-prefix\r\n'));
+      mockSocket.emit('data', Buffer.from('CAP * LS :another-cap\r\n'));
+
+      const capEndCalls = mockSocket.write.mock.calls.filter(
+        (c: unknown[]) => c[0] === 'CAP END\r\n'
+      );
+      expect(capEndCalls.length).toBe(1);
+    });
+
+    it('should emit raw events for CAP LS response lines', () => {
       const client = new IrcClient();
       const rawHandler = vi.fn();
       client.on('raw', rawHandler);
 
       client.connect(defaultOptions);
       mockSocket.emit('connect');
-
-      // Verify CAP LS 302 was sent as the first registration command
-      expect(mockSocket.write).toHaveBeenCalledWith('CAP LS 302\r\n');
-      expect(rawHandler).toHaveBeenCalledWith('CAP LS 302', false);
-
       rawHandler.mockClear();
 
       // Server responds with multiline CAP LS (302 style with * continuation)
@@ -143,7 +208,6 @@ describe('IrcClient', () => {
       ));
 
       // Both CAP LS response lines should be emitted as raw server events
-      expect(rawHandler).toHaveBeenCalledTimes(2);
       expect(rawHandler).toHaveBeenCalledWith(
         'CAP * LS * :message-tags server-time batch',
         true,
@@ -182,13 +246,13 @@ describe('IrcClient', () => {
       mockSocket.emit('connect');
       mockSocket.write.mockClear();
 
-      // Server responds with CAP LS
+      // Server responds with CAP LS (also triggers CAP END)
       mockSocket.emit('data', Buffer.from('CAP * LS :multi-prefix\r\n'));
 
       // Advance past timeout — should NOT retry
       vi.advanceTimersByTime(10000);
 
-      // Only PING should appear, no extra CAP LS 302
+      // Only CAP END and PING should appear, no extra CAP LS 302
       const capCalls = mockSocket.write.mock.calls.filter(
         (c: unknown[]) => c[0] === 'CAP LS 302\r\n'
       );
