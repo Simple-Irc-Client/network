@@ -1,8 +1,6 @@
 # Simple IRC Client - Network Module
 
 [![Build Status](https://github.com/Simple-Irc-Client/network/actions/workflows/ci.yml/badge.svg)](https://github.com/Simple-Irc-Client/network/actions/workflows/ci.yml)
-[![License: AGPL v3](https://img.shields.io/badge/License-AGPL%20v3-blue.svg)](https://github.com/Simple-Irc-Client/network/blob/main/LICENSE)
-[![Node.js](https://img.shields.io/badge/Node.js-%3E%3D24-green.svg)](https://nodejs.org/)
 
 A network service that bridges IRC servers with frontend applications via WebSocket.
 
