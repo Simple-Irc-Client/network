@@ -25,7 +25,7 @@ A network service that bridges IRC servers with frontend applications via WebSoc
 ### Installation
 
 ```bash
-npm install
+pnpm install
 ```
 
 ### Development
@@ -33,7 +33,7 @@ npm install
 Start the development server:
 
 ```bash
-npm run dev
+pnpm run dev
 ```
 
 The network service will be available at `http://localhost:8667`
