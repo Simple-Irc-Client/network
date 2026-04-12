@@ -1,7 +1,16 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 
 // Create mock instances that we can access in tests
-const mockIrcClientInstance: Record<string, ReturnType<typeof vi.fn>> = {
+interface MockIrcClient {
+  on: ReturnType<typeof vi.fn>;
+  connectRaw: ReturnType<typeof vi.fn>;
+  quit: ReturnType<typeof vi.fn>;
+  send: ReturnType<typeof vi.fn>;
+  pause: ReturnType<typeof vi.fn>;
+  resume: ReturnType<typeof vi.fn>;
+}
+
+const mockIrcClientInstance: MockIrcClient = {
   on: vi.fn(),
   connectRaw: vi.fn(),
   quit: vi.fn(),
@@ -11,10 +20,10 @@ const mockIrcClientInstance: Record<string, ReturnType<typeof vi.fn>> = {
 };
 
 // Track all created clients for connection isolation tests
-const allCreatedClients: Record<string, ReturnType<typeof vi.fn>>[] = [];
+const allCreatedClients: MockIrcClient[] = [];
 
-function createMockClient() {
-  const client = {
+function createMockClient(): MockIrcClient {
+  const client: MockIrcClient = {
     on: vi.fn(),
     connectRaw: vi.fn(),
     quit: vi.fn(),
@@ -27,8 +36,8 @@ function createMockClient() {
   mockIrcClientInstance.connectRaw = client.connectRaw;
   mockIrcClientInstance.quit = client.quit;
   mockIrcClientInstance.send = client.send;
-  (mockIrcClientInstance as Record<string, unknown>).pause = client.pause;
-  (mockIrcClientInstance as Record<string, unknown>).resume = client.resume;
+  mockIrcClientInstance.pause = client.pause;
+  mockIrcClientInstance.resume = client.resume;
   allCreatedClients.push(client);
   return client;
 }
