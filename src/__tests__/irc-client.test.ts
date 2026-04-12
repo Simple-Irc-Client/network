@@ -276,6 +276,39 @@ describe('IrcClient', () => {
       expect(capCalls.length).toBe(3);
     });
 
+    it('should emit cap timeout event after exhausting retries', () => {
+      const client = new IrcClient();
+      const capTimeoutHandler = vi.fn();
+      client.on('cap timeout', capTimeoutHandler);
+
+      client.connect(defaultOptions);
+      mockSocket.emit('connect');
+
+      // Advance past initial + 2 retries + final timeout
+      vi.advanceTimersByTime(10000); // 1st retry
+      vi.advanceTimersByTime(10000); // 2nd retry
+      vi.advanceTimersByTime(10000); // exhausted — emits cap timeout
+
+      expect(capTimeoutHandler).toHaveBeenCalledWith({ retries: 2 });
+    });
+
+    it('should not emit cap timeout if CAP LS response arrives', () => {
+      const client = new IrcClient();
+      const capTimeoutHandler = vi.fn();
+      client.on('cap timeout', capTimeoutHandler);
+
+      client.connect(defaultOptions);
+      mockSocket.emit('connect');
+
+      // Server responds before timeout
+      mockSocket.emit('data', Buffer.from('CAP * LS :multi-prefix\r\n'));
+
+      // Advance past all timeout windows
+      vi.advanceTimersByTime(30000);
+
+      expect(capTimeoutHandler).not.toHaveBeenCalled();
+    });
+
     it('should destroy previous connection on reconnect', () => {
       const client = new IrcClient();
       const oldSocket = mockSocket;

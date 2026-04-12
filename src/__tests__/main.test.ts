@@ -1,15 +1,17 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 
 // Create mock instances that we can access in tests
-const mockIrcClientInstance = {
+const mockIrcClientInstance: Record<string, ReturnType<typeof vi.fn>> = {
   on: vi.fn(),
   connectRaw: vi.fn(),
   quit: vi.fn(),
   send: vi.fn(),
+  pause: vi.fn(),
+  resume: vi.fn(),
 };
 
 // Track all created clients for connection isolation tests
-const allCreatedClients: { on: ReturnType<typeof vi.fn>; connectRaw: ReturnType<typeof vi.fn>; quit: ReturnType<typeof vi.fn>; send: ReturnType<typeof vi.fn> }[] = [];
+const allCreatedClients: Record<string, ReturnType<typeof vi.fn>>[] = [];
 
 function createMockClient() {
   const client = {
@@ -17,12 +19,16 @@ function createMockClient() {
     connectRaw: vi.fn(),
     quit: vi.fn(),
     send: vi.fn(),
+    pause: vi.fn(),
+    resume: vi.fn(),
   };
   // Also update the shared instance so existing single-connection tests work
   mockIrcClientInstance.on = client.on;
   mockIrcClientInstance.connectRaw = client.connectRaw;
   mockIrcClientInstance.quit = client.quit;
   mockIrcClientInstance.send = client.send;
+  (mockIrcClientInstance as Record<string, unknown>).pause = client.pause;
+  (mockIrcClientInstance as Record<string, unknown>).resume = client.resume;
   allCreatedClients.push(client);
   return client;
 }
@@ -61,15 +67,19 @@ vi.mock('../encryption.js', () => ({
 
 // Mock http to prevent real server from binding to port 8667
 let capturedUpgradeHandler: ((...args: unknown[]) => void) | null = null;
+let capturedHttpErrorHandler: ((...args: unknown[]) => void) | null = null;
 const mockHttpServerInstance = {
   on: vi.fn((event: string, handler: (...args: unknown[]) => void) => {
     if (event === 'upgrade') {
       capturedUpgradeHandler = handler;
+    } else if (event === 'error') {
+      capturedHttpErrorHandler = handler;
     }
   }),
   listen: vi.fn((_port: number, _host: string, cb?: () => void) => {
     if (cb) cb();
   }),
+  close: vi.fn((cb?: () => void) => { if (cb) cb(); }),
 };
 vi.mock('http', () => ({
   createServer: vi.fn(() => mockHttpServerInstance),
@@ -98,7 +108,7 @@ function simulateUpgrade(
   host = 'irc.example.com',
   port = 6667,
   tls = false,
-): { mockWs: { on: ReturnType<typeof vi.fn>; send: ReturnType<typeof vi.fn>; readyState: number; close: ReturnType<typeof vi.fn> }; mockSocket: { write: ReturnType<typeof vi.fn>; destroy: ReturnType<typeof vi.fn> } } {
+): { mockWs: { on: ReturnType<typeof vi.fn>; send: ReturnType<typeof vi.fn>; readyState: number; close: ReturnType<typeof vi.fn>; bufferedAmount: number }; mockSocket: { write: ReturnType<typeof vi.fn>; destroy: ReturnType<typeof vi.fn> } } {
   if (!capturedUpgradeHandler) throw new Error('upgrade handler not captured');
 
   const params = new URLSearchParams({ host, port: String(port), tls: String(tls) });
@@ -117,6 +127,7 @@ function simulateUpgrade(
     send: vi.fn(),
     readyState: 1, // WebSocket.OPEN
     close: vi.fn(),
+    bufferedAmount: 0,
   };
 
   // If handleUpgrade was called, invoke its callback with our mock ws
@@ -138,18 +149,24 @@ describe('main.ts', () => {
     mockIrcClientInstance.connectRaw = vi.fn();
     mockIrcClientInstance.quit = vi.fn();
     mockIrcClientInstance.send = vi.fn();
+    mockIrcClientInstance.pause = vi.fn();
+    mockIrcClientInstance.resume = vi.fn();
     mockWsServerInstance.handleUpgrade = vi.fn((_req: unknown, _socket: unknown, _head: unknown, cb: (ws: unknown) => void) => {
       handleUpgradeCallback = cb;
     });
     mockHttpServerInstance.on = vi.fn((event: string, handler: (...args: unknown[]) => void) => {
       if (event === 'upgrade') {
         capturedUpgradeHandler = handler;
+      } else if (event === 'error') {
+        capturedHttpErrorHandler = handler;
       }
     });
     mockHttpServerInstance.listen = vi.fn((_port: number, _host: string, cb?: () => void) => {
       if (cb) cb();
     });
+    mockHttpServerInstance.close = vi.fn((cb?: () => void) => { if (cb) cb(); });
     capturedUpgradeHandler = null;
+    capturedHttpErrorHandler = null;
     handleUpgradeCallback = null;
     allCreatedClients.length = 0;
 
@@ -359,6 +376,141 @@ describe('main.ts', () => {
       expect(client1.quit).toHaveBeenCalled();
       // client2 should NOT have been quit
       expect(client2.quit).not.toHaveBeenCalled();
+    });
+  });
+
+  describe('Encryption error logging', () => {
+    it('should always log encryption failures (not gate on NODE_ENV)', async () => {
+      const { encryptString: mockEncrypt } = await import('../encryption.js');
+      vi.mocked(mockEncrypt).mockRejectedValueOnce(new Error('bad key'));
+
+      const { mockWs } = simulateUpgrade();
+      const rawHandler = getHandler(mockIrcClientInstance.on.mock.calls, 'raw');
+
+      rawHandler(':server PRIVMSG #ch :secret', true);
+      await flushPromises();
+
+      // Message should be dropped (not sent unencrypted)
+      expect(mockWs.send).not.toHaveBeenCalled();
+      // Error should be logged
+      expect(console.error).toHaveBeenCalledWith(
+        expect.stringContaining('Encryption failed')
+      );
+    });
+
+    it('should always log decryption failures', async () => {
+      const { decryptString: mockDecrypt } = await import('../encryption.js');
+      vi.mocked(mockDecrypt).mockRejectedValueOnce(new Error('tampered'));
+
+      const { mockWs } = simulateUpgrade();
+      const messageHandler = getHandler(mockWs.on.mock.calls, 'message');
+
+      messageHandler(Buffer.from('garbled'));
+      await flushPromises();
+
+      expect(console.error).toHaveBeenCalledWith(
+        expect.stringContaining('Error decrypting message')
+      );
+    });
+
+    it('should catch ws.send() exceptions without crashing', async () => {
+      const { mockWs } = simulateUpgrade();
+      mockWs.send.mockImplementationOnce(() => { throw new Error('frame too large'); });
+
+      const rawHandler = getHandler(mockIrcClientInstance.on.mock.calls, 'raw');
+
+      rawHandler(':server NOTICE * :test', true);
+      await flushPromises();
+
+      // Should log the error and not crash
+      expect(console.error).toHaveBeenCalledWith(
+        expect.stringContaining('ws.send failed')
+      );
+    });
+  });
+
+  describe('WebSocket backpressure', () => {
+    it('should pause IRC client when bufferedAmount exceeds 1 MiB', async () => {
+      const { mockWs } = simulateUpgrade();
+      const client = allCreatedClients[allCreatedClients.length - 1]!;
+      const rawHandler = getHandler(client.on.mock.calls, 'raw');
+
+      // Simulate high bufferedAmount after send
+      mockWs.send.mockImplementation(() => {
+        mockWs.bufferedAmount = 2 * 1024 * 1024;
+      });
+
+      rawHandler(':server PRIVMSG #ch :data', true);
+      await flushPromises();
+
+      expect(client.pause).toHaveBeenCalled();
+    });
+
+    it('should not pause IRC client when bufferedAmount is low', async () => {
+      const { mockWs } = simulateUpgrade();
+      const client = allCreatedClients[allCreatedClients.length - 1]!;
+      const rawHandler = getHandler(client.on.mock.calls, 'raw');
+
+      mockWs.bufferedAmount = 0;
+
+      rawHandler(':server PRIVMSG #ch :data', true);
+      await flushPromises();
+
+      expect(client.pause).not.toHaveBeenCalled();
+    });
+  });
+
+  describe('IRC close drains sendQueue before closing WS', () => {
+    it('should wait for pending sends before closing WebSocket', async () => {
+      const { encryptString: mockEncrypt } = await import('../encryption.js');
+      let resolveEncrypt!: (value: string) => void;
+
+      // First call: stall encryption
+      // Second call: instant
+      const encryptFn = vi.mocked(mockEncrypt);
+      encryptFn
+        .mockImplementationOnce(() => new Promise<string>((r) => { resolveEncrypt = r; }))
+        .mockImplementation((s: string) => Promise.resolve(s));
+
+      const { mockWs } = simulateUpgrade();
+      const client = allCreatedClients[allCreatedClients.length - 1]!;
+      const rawHandler = getHandler(client.on.mock.calls, 'raw');
+      const closeHandler = getHandler(client.on.mock.calls, 'close');
+
+      // Queue an IRC message (encryption stalls)
+      rawHandler(':server 465 nick :You are banned', true);
+      await flushPromises();
+
+      // IRC connection closes while encryption is pending
+      closeHandler();
+      await flushPromises();
+
+      // WS should NOT be closed yet (pending send)
+      expect(mockWs.close).not.toHaveBeenCalled();
+
+      // Resolve the pending encryption
+      resolveEncrypt('encrypted:465');
+      await flushPromises();
+
+      // NOW the WS should close
+      expect(mockWs.close).toHaveBeenCalled();
+    });
+  });
+
+  describe('HTTP server error handling', () => {
+    it('should register an error handler on the http server', () => {
+      expect(mockHttpServerInstance.on).toHaveBeenCalledWith('error', expect.any(Function));
+      expect(capturedHttpErrorHandler).not.toBeNull();
+    });
+
+    it('should log the error when httpServer emits an error', () => {
+      if (!capturedHttpErrorHandler) throw new Error('No error handler');
+      const error = Object.assign(new Error('Address already in use'), { code: 'EADDRINUSE' });
+      capturedHttpErrorHandler(error);
+
+      expect(console.error).toHaveBeenCalledWith(
+        expect.stringContaining('EADDRINUSE')
+      );
     });
   });
 
