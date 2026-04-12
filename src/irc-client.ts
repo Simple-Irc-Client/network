@@ -194,7 +194,13 @@ export class IrcClient extends EventEmitter {
       if (this.capRetryCount < CAP_MAX_RETRIES) {
         this.capRetryCount++;
         this.sendCapLs();
+        return;
       }
+
+      // Exhausted retries. Emit a typed event so observers know capability
+      // negotiation was skipped, then continue without CAPs rather than
+      // silently leaving registration hung.
+      this.emit('cap timeout', { retries: this.capRetryCount });
     }, CAP_RESPONSE_TIMEOUT_MS);
   }
 
@@ -228,7 +234,11 @@ export class IrcClient extends EventEmitter {
     }
 
     if (this.receiveBuffer.length > MAX_RECEIVE_BUFFER_SIZE) {
-      this.socket?.destroy(new Error('Receive buffer overflow'));
+      // Emit a typed error before destroying so the consumer can surface
+      // "server flooded" to the user instead of a generic "network failure".
+      const overflowError = new Error('Receive buffer overflow: server sent too much data without line terminators');
+      this.emit('error', overflowError);
+      this.socket?.destroy(overflowError);
     }
   }
 
@@ -272,6 +282,20 @@ export class IrcClient extends EventEmitter {
       this.socket.write(`${stripCRLF(line)}${IRC_LINE_ENDING}`);
       this.emit('raw', line, false);
     }
+  }
+
+  /**
+   * Pause reads from the IRC server so TCP flow control can slow the
+   * upstream down. Used when the downstream WebSocket client is falling
+   * behind, to prevent unbounded buffering in the proxy process.
+   */
+  pause(): void {
+    this.socket?.pause();
+  }
+
+  /** Resume reads from the IRC server after a pause(). */
+  resume(): void {
+    this.socket?.resume();
   }
 
   private handleSocketClosed(): void {

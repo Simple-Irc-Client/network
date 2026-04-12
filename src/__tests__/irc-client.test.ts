@@ -436,6 +436,8 @@ describe('IrcClient', () => {
 
     it('should destroy socket on buffer overflow', () => {
       const client = new IrcClient();
+      const errorHandler = vi.fn();
+      client.on('error', errorHandler);
       client.connect(defaultOptions);
       mockSocket.emit('connect');
 
@@ -450,6 +452,9 @@ describe('IrcClient', () => {
       // One more byte pushes over 2MB
       mockSocket.emit('data', Buffer.from('A'));
       expect(mockSocket.destroy).toHaveBeenCalled();
+      expect(errorHandler).toHaveBeenCalledWith(
+        expect.objectContaining({ message: expect.stringContaining('buffer overflow') })
+      );
     });
 
     it('should ignore empty lines', () => {

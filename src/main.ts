@@ -22,6 +22,20 @@ const WEBSOCKET_PATH = '/webirc';
 const CONTROL_RE = /[\x00-\x08\x0b\x0c\x0e-\x1f\x7f\x1b]/g;
 const sanitizeLog = (s: string): string => s.replace(CONTROL_RE, '');
 
+// Process-level safety net — any stray rejection or exception would otherwise
+// terminate the process silently. Log with enough context to diagnose.
+// Use `once` so re-imports in tests don't stack duplicate handlers.
+process.once('unhandledRejection', (reason) => {
+  const msg = reason instanceof Error ? `${reason.message}\n${reason.stack ?? ''}` : String(reason);
+  console.error(`\x1b[31m${new Date().toISOString()} Unhandled rejection: ${sanitizeLog(msg)}\x1b[0m`);
+});
+
+process.once('uncaughtException', (error) => {
+  console.error(`\x1b[31m${new Date().toISOString()} Uncaught exception: ${sanitizeLog(error.message)}\n${error.stack ?? ''}\x1b[0m`);
+  // Exceptions leave the process in an undefined state — exit so the supervisor restarts us.
+  process.exit(1);
+});
+
 /** Strip CR/LF to prevent IRC line injection in constructed messages */
 const stripCRLF = (s: string): string => s.replace(/[\r\n]/g, '');
 
@@ -55,32 +69,88 @@ let ircClient: IrcClient | null = null;
 // Rate limiting: max 50 messages per 5-second window
 const RATE_LIMIT_MAX_MESSAGES = 50;
 const RATE_LIMIT_WINDOW_MS = 5000;
-let messageCount = 0;
-let rateLimitWindowStart = 0;
 
 /**
- * Serialized send queue — ensures IRC messages are encrypted and delivered
- * to the WebSocket client in the same order they arrived from the IRC server.
- * Without this, concurrent encryptString() calls can resolve out of order.
+ * Per-connection state bag. Previously all of these lived at module scope,
+ * which meant a rapid disconnect+reconnect could race: the new connection
+ * would reset the shared sendQueue while the old connection's encryption
+ * chain was still resolving, causing messages to fire out of order. Keeping
+ * the state alongside the connection that owns it eliminates the window.
  */
-let sendQueue: Promise<void> = Promise.resolve();
+interface ConnectionState {
+  ws: WebSocket;
+  client: IrcClient;
+  sendQueue: Promise<void>;
+  messageCount: number;
+  rateLimitWindowStart: number;
+  /** True while the IRC socket is paused for WebSocket backpressure. */
+  paused: boolean;
+}
 
 /**
- * Send a raw IRC line to a specific WebSocket client (encrypted)
+ * Send a raw IRC line through a specific connection's serialized queue.
+ * Always logs failures — even in production — because encryption errors
+ * are a security boundary and silent drops hide real attacks or bugs.
  */
-const sendRawToClient = (ws: WebSocket, line: string): Promise<void> => {
-  sendQueue = sendQueue.then(async () => {
-    if (ws.readyState === WebSocket.OPEN) {
-      try {
-        const encrypted = await encryptString(line);
-        ws.send(encrypted);
-      } catch {
-        // Fail closed — drop the message rather than sending unencrypted
+const sendRawToClient = (state: ConnectionState, line: string): Promise<void> => {
+  state.sendQueue = state.sendQueue.then(async () => {
+    const { ws } = state;
+    if (ws.readyState !== WebSocket.OPEN) return;
+    let encrypted: string;
+    try {
+      encrypted = await encryptString(line);
+    } catch (error) {
+      // Fail closed — drop the message rather than sending unencrypted.
+      // Logging is unconditional: encryption failures must be visible in prod.
+      console.error(
+        `\x1b[31m${new Date().toISOString()} Encryption failed, dropping message: ${sanitizeLog(String(error))}\x1b[0m`
+      );
+      return;
+    }
+    try {
+      ws.send(encrypted);
+      // The `ws` library's send() doesn't return a drain status — we have to
+      // consult bufferedAmount instead. When > 1 MiB is queued we pause the
+      // upstream IRC socket so memory doesn't grow unboundedly for a slow
+      // client, and resume once the buffer drains.
+      if (ws.bufferedAmount > 1_048_576 && !state.paused) {
+        state.paused = true;
+        state.client.pause();
+        waitForWsDrain(ws, () => {
+          state.paused = false;
+          state.client.resume();
+        });
       }
+    } catch (error) {
+      console.error(
+        `\x1b[31m${new Date().toISOString()} ws.send failed: ${sanitizeLog(String(error))}\x1b[0m`
+      );
     }
   });
-  return sendQueue;
+  return state.sendQueue;
 };
+
+/**
+ * Poll WebSocket bufferedAmount until it drops below the low-water mark,
+ * then invoke onDrain. Cheap and dependency-free — the downside is a small
+ * latency delta vs a true drain event, which is acceptable for IRC throughput.
+ */
+function waitForWsDrain(ws: WebSocket, onDrain: () => void): void {
+  const LOW_WATER_MARK = 524_288;
+  const CHECK_INTERVAL_MS = 50;
+  const tick = (): void => {
+    if (ws.readyState !== WebSocket.OPEN) return;
+    if (ws.bufferedAmount < LOW_WATER_MARK) {
+      onDrain();
+      return;
+    }
+    setTimeout(tick, CHECK_INTERVAL_MS);
+  };
+  setTimeout(tick, CHECK_INTERVAL_MS);
+}
+
+/** Track the active connection's send queue so shutdown can drain it. */
+let activeState: ConnectionState | null = null;
 
 /**
  * Handle WebSocket upgrade requests
@@ -144,7 +214,21 @@ function handleNewClient(
   // never touch a different connection's state on rapid reconnect.
   const client = new IrcClient();
   ircClient = client;
-  setupIrcEventHandlers(client, ws);
+
+  // Per-connection state. Keeping this outside module scope means a rapid
+  // disconnect+reconnect can't race the shared sendQueue — each connection
+  // owns its own queue for its entire lifetime.
+  const state: ConnectionState = {
+    ws,
+    client,
+    sendQueue: Promise.resolve(),
+    messageCount: 0,
+    rateLimitWindowStart: Date.now(),
+    paused: false,
+  };
+  activeState = state;
+
+  setupIrcEventHandlers(state);
 
   client.connectRaw({
     host: serverConfig.host,
@@ -153,21 +237,16 @@ function handleNewClient(
     encoding: serverConfig.encoding,
   });
 
-  // Reset rate limit and send queue for new connection
-  messageCount = 0;
-  rateLimitWindowStart = Date.now();
-  sendQueue = Promise.resolve();
-
   // Handle incoming WebSocket messages (encrypted raw IRC commands)
   ws.on('message', async (data: Buffer) => {
-    // Rate limiting
+    // Rate limiting (sliding window, per-connection)
     const now = Date.now();
-    if (now - rateLimitWindowStart > RATE_LIMIT_WINDOW_MS) {
-      messageCount = 0;
-      rateLimitWindowStart = now;
+    if (now - state.rateLimitWindowStart > RATE_LIMIT_WINDOW_MS) {
+      state.messageCount = 0;
+      state.rateLimitWindowStart = now;
     }
-    messageCount++;
-    if (messageCount > RATE_LIMIT_MAX_MESSAGES) {
+    state.messageCount++;
+    if (state.messageCount > RATE_LIMIT_MAX_MESSAGES) {
       return;
     }
 
@@ -179,9 +258,10 @@ function handleNewClient(
         client.send(line);
       }
     } catch (error) {
-      if (process.env.NODE_ENV !== 'production') {
-        console.error(`\x1b[31m${new Date().toISOString()} Error decrypting message: ${sanitizeLog(String(error))}\x1b[0m`);
-      }
+      // Decryption failures are always logged (key mismatch, corruption, or
+      // attacker-sent garbage). Silent drops in production mean no way to
+      // diagnose broken clients or probe attempts.
+      console.error(`\x1b[31m${new Date().toISOString()} Error decrypting message: ${sanitizeLog(String(error))}\x1b[0m`);
     }
   });
 
@@ -192,6 +272,7 @@ function handleNewClient(
     // Only clear globals if they still belong to this connection
     if (ircClient === client) ircClient = null;
     if (connectedClient === ws) connectedClient = null;
+    if (activeState === state) activeState = null;
   });
 
   // Handle WebSocket error
@@ -202,17 +283,19 @@ function handleNewClient(
 
 /**
  * Set up event handlers for IRC client.
- * Uses the local `ws` reference so stale events from a previous connection
+ * Uses the state reference so stale events from a previous connection
  * never interfere with a newer one.
  */
-function setupIrcEventHandlers(client: IrcClient, ws: WebSocket): void {
+function setupIrcEventHandlers(state: ConnectionState): void {
+  const { client, ws } = state;
+
   // Raw IRC message from server - forward to WebSocket client (encrypted)
   client.on('raw', (line: string, fromServer: boolean) => {
     if (fromServer) {
       if (process.env.NODE_ENV !== 'production') {
         console.log(`${new Date().toISOString()} >> ${sanitizeLog(line.trim())}`);
       }
-      sendRawToClient(ws, line).catch((err) => {
+      sendRawToClient(state, line).catch((err) => {
         console.error(`\x1b[31m${new Date().toISOString()} Failed to send to client: ${sanitizeLog(String(err))}\x1b[0m`);
       });
     } else if (process.env.NODE_ENV !== 'production') {
@@ -223,43 +306,75 @@ function setupIrcEventHandlers(client: IrcClient, ws: WebSocket): void {
   // IRC connection closed - wait for pending messages (e.g. 465, ERROR) to be
   // delivered before sending the WebSocket close frame.
   client.on('close', () => {
-    void sendQueue.then(() => {
+    void state.sendQueue.then(() => {
       if (ws.readyState === WebSocket.OPEN) {
         ws.close();
       }
     });
   });
 
-  // Socket error
+  // Socket error — always log, even in production
   client.on('error', (error: Error) => {
     console.error(`\x1b[31m${new Date().toISOString()} IRC error: ${sanitizeLog(error.message)}\x1b[0m`);
-    sendRawToClient(ws, `ERROR :${stripCRLF(error.message)}`).catch((err) => {
+    sendRawToClient(state, `ERROR :${stripCRLF(error.message)}`).catch((err) => {
       console.error(`\x1b[31m${new Date().toISOString()} Failed to send error to client: ${sanitizeLog(String(err))}\x1b[0m`);
     });
   });
 }
+
+// Surface listen errors (EADDRINUSE, EACCES, etc.) so a failed bind doesn't
+// leave the process running in a silent half-dead state.
+httpServer.on('error', (error: NodeJS.ErrnoException) => {
+  console.error(
+    `\x1b[31m${new Date().toISOString()} HTTP server error${error.code ? ` (${error.code})` : ''}: ${sanitizeLog(error.message)}\x1b[0m`
+  );
+});
 
 // Start server
 httpServer.listen(defaultWebsocketPort, '127.0.0.1', () => {
   console.log(`\x1b[32m${new Date().toISOString()} Server started on ws://127.0.0.1:${defaultWebsocketPort}${WEBSOCKET_PATH}\x1b[0m`);
 });
 
+// Maximum time to wait for the active connection's send queue to drain
+// during shutdown — bounded so a stuck write can't block SIGTERM forever.
+const SHUTDOWN_DRAIN_TIMEOUT_MS = 3000;
+
 // Graceful shutdown
-const shutdown = () => {
+let shuttingDown = false;
+const shutdown = (): void => {
+  if (shuttingDown) return;
+  shuttingDown = true;
   console.log(`\x1b[33m${new Date().toISOString()} Shutting down...\x1b[0m`);
+
+  const pendingQueue = activeState?.sendQueue ?? Promise.resolve();
+
   if (ircClient) {
     ircClient.quit(defaultIrcQuitMessage);
     ircClient = null;
   }
-  if (connectedClient) {
-    connectedClient.close();
-    connectedClient = null;
-  }
-  wss.close();
-  httpServer.close(() => {
-    console.log(`\x1b[33m${new Date().toISOString()} Server stopped\x1b[0m`);
-    process.exit(0);
-  });
+
+  // Wait for any in-flight encrypted writes (ERROR, 465, final QUIT ack) to
+  // be delivered before closing the WebSocket. Without this the last few
+  // IRC messages routinely get lost on shutdown.
+  const drainDeadline = new Promise<void>((resolve) => setTimeout(resolve, SHUTDOWN_DRAIN_TIMEOUT_MS));
+  Promise.race([pendingQueue, drainDeadline])
+    .catch(() => {
+      // ignore — we just want the drain attempt
+    })
+    .finally(() => {
+      if (connectedClient) {
+        connectedClient.close();
+        connectedClient = null;
+      }
+      wss.close();
+      httpServer.close(() => {
+        console.log(`\x1b[33m${new Date().toISOString()} Server stopped\x1b[0m`);
+        process.exit(0);
+      });
+      // Hard timeout — if httpServer.close never calls back (e.g. a stuck
+      // client), don't leave the process hanging forever.
+      setTimeout(() => process.exit(0), SHUTDOWN_DRAIN_TIMEOUT_MS).unref();
+    });
 };
 
 process.once('SIGTERM', shutdown);
