@@ -441,7 +441,8 @@ describe('main.ts', () => {
   describe('WebSocket backpressure', () => {
     it('should pause IRC client when bufferedAmount exceeds 1 MiB', async () => {
       const { mockWs } = simulateUpgrade();
-      const client = allCreatedClients[allCreatedClients.length - 1]!;
+      const client = allCreatedClients[allCreatedClients.length - 1];
+      if (!client) throw new Error('No client created');
       const rawHandler = getHandler(client.on.mock.calls, 'raw');
 
       // Simulate high bufferedAmount after send
@@ -457,7 +458,8 @@ describe('main.ts', () => {
 
     it('should not pause IRC client when bufferedAmount is low', async () => {
       const { mockWs } = simulateUpgrade();
-      const client = allCreatedClients[allCreatedClients.length - 1]!;
+      const client = allCreatedClients[allCreatedClients.length - 1];
+      if (!client) throw new Error('No client created');
       const rawHandler = getHandler(client.on.mock.calls, 'raw');
 
       mockWs.bufferedAmount = 0;
@@ -482,7 +484,8 @@ describe('main.ts', () => {
         .mockImplementation((s: string) => Promise.resolve(s));
 
       const { mockWs } = simulateUpgrade();
-      const client = allCreatedClients[allCreatedClients.length - 1]!;
+      const client = allCreatedClients[allCreatedClients.length - 1];
+      if (!client) throw new Error('No client created');
       const rawHandler = getHandler(client.on.mock.calls, 'raw');
       const closeHandler = getHandler(client.on.mock.calls, 'close');
 
