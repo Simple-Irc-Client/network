@@ -390,6 +390,39 @@ describe('IrcClient', () => {
       );
     });
 
+    it('should accept bare LF line terminators', () => {
+      const client = new IrcClient();
+      const rawHandler = vi.fn();
+      client.on('raw', rawHandler);
+
+      client.connect(defaultOptions);
+      mockSocket.emit('connect');
+      rawHandler.mockClear();
+
+      mockSocket.emit('data', Buffer.from(':server NOTICE * :A\n:server NOTICE * :B\n'));
+
+      expect(rawHandler).toHaveBeenCalledTimes(2);
+      expect(rawHandler).toHaveBeenCalledWith(':server NOTICE * :A', true);
+      expect(rawHandler).toHaveBeenCalledWith(':server NOTICE * :B', true);
+    });
+
+    it('should handle a mix of CRLF and bare LF terminators', () => {
+      const client = new IrcClient();
+      const rawHandler = vi.fn();
+      client.on('raw', rawHandler);
+
+      client.connect(defaultOptions);
+      mockSocket.emit('connect');
+      rawHandler.mockClear();
+
+      mockSocket.emit('data', Buffer.from(':s NOTICE * :crlf\r\n:s NOTICE * :lf\n:s NOTICE * :crlf2\r\n'));
+
+      expect(rawHandler).toHaveBeenCalledTimes(3);
+      expect(rawHandler).toHaveBeenCalledWith(':s NOTICE * :crlf', true);
+      expect(rawHandler).toHaveBeenCalledWith(':s NOTICE * :lf', true);
+      expect(rawHandler).toHaveBeenCalledWith(':s NOTICE * :crlf2', true);
+    });
+
     it('should buffer incomplete lines', () => {
       const client = new IrcClient();
       const rawHandler = vi.fn();

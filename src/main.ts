@@ -290,8 +290,8 @@ function setupIrcEventHandlers(state: ConnectionState): void {
   const { client, ws } = state;
 
   // Raw IRC message from server - forward to WebSocket client (encrypted)
-  client.on('raw', (line: string, fromServer: boolean) => {
-    if (fromServer) {
+  client.on('raw', (line: string, inbound: boolean) => {
+    if (inbound) {
       if (process.env.NODE_ENV !== 'production') {
         console.log(`${new Date().toISOString()} >> ${sanitizeLog(line.trim())}`);
       }

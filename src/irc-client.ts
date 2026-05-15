@@ -223,10 +223,18 @@ export class IrcClient extends EventEmitter {
   private handleIncomingData(data: Buffer): void {
     this.receiveBuffer = Buffer.concat([this.receiveBuffer, data]);
 
-    let lineEndIndex: number;
-    while ((lineEndIndex = this.receiveBuffer.indexOf(IRC_LINE_ENDING)) !== -1) {
-      const line = this.receiveBuffer.subarray(0, lineEndIndex).toString(this.characterEncoding);
-      this.receiveBuffer = this.receiveBuffer.subarray(lineEndIndex + 2);
+    // RFC 1459/2812 mandates CRLF, but some bouncers, proxies and test
+    // servers emit a bare \n. Splitting strictly on \r\n would let such a
+    // stream grow until it trips MAX_RECEIVE_BUFFER_SIZE and the connection
+    // is killed. Split on \n (0x0a) and strip an optional preceding \r.
+    let lfIndex: number;
+    while ((lfIndex = this.receiveBuffer.indexOf(0x0a)) !== -1) {
+      let end = lfIndex;
+      if (end > 0 && this.receiveBuffer[end - 1] === 0x0d) {
+        end -= 1;
+      }
+      const line = this.receiveBuffer.subarray(0, end).toString(this.characterEncoding);
+      this.receiveBuffer = this.receiveBuffer.subarray(lfIndex + 1);
 
       if (line.length > 0) {
         this.handleIrcLine(line);
